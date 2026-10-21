@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Knesset Live Monitor</title>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f4f4f2; --surface: #fcfcfb; --surface-2: #f0efec; --border: #e2e1dc;
+  --text: #0b0b0b; --text-2: #52514e; --muted: #85847e;
+  --bloc-N: #2a78d6; --bloc-O: #eb6834; --bloc-A: #1baf7a; --bloc-X: #eda100;
+  --pos: #2a78d6; --neg: #e34948; --good: #0ca30c; --warn: #fab219; --crit: #d03b3b;
+  --mid: #f0efec;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --bg: #121211; --surface: #1a1a19; --surface-2: #232321; --border: #33332f;
+    --text: #f0efec; --text-2: #c3c2b7; --muted: #8f8e86;
+    --bloc-N: #3987e5; --bloc-O: #d95926; --bloc-A: #199e70; --bloc-X: #c98500;
+    --pos: #3987e5; --neg: #e66767; --mid: #383835;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #121211; --surface: #1a1a19; --surface-2: #232321; --border: #33332f;
+  --text: #f0efec; --text-2: #c3c2b7; --muted: #8f8e86;
+  --bloc-N: #3987e5; --bloc-O: #d95926; --bloc-A: #199e70; --bloc-X: #c98500;
+  --pos: #3987e5; --neg: #e66767; --mid: #383835;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Arial, sans-serif; }
+header { position: sticky; top: 0; z-index: 5; background: var(--surface); border-bottom: 1px solid var(--border); padding: 10px 16px; }
+.hrow { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+h1 { font-size: 17px; margin: 0; font-weight: 650; }
+.sub { color: var(--text-2); font-size: 13px; }
+.pill { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 99px; padding: 2px 10px; font-size: 12px; color: var(--text-2); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.dot.live { background: var(--good); } .dot.stale { background: var(--warn); } .dot.err { background: var(--crit); }
+.spacer { flex: 1; }
+button, .btn { font: inherit; font-size: 13px; background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; cursor: pointer; text-decoration: none; }
+button:hover, .btn:hover { border-color: var(--muted); }
+.progress { height: 6px; background: var(--surface-2); border-radius: 3px; overflow: hidden; margin-top: 8px; }
+.progress > div { height: 100%; background: var(--bloc-N); transition: width .6s; }
+nav { display: flex; gap: 4px; margin-top: 8px; overflow-x: auto; }
+nav button { border: none; background: none; padding: 6px 10px; border-radius: 6px; color: var(--text-2); white-space: nowrap; }
+nav button.on { background: var(--surface-2); color: var(--text); font-weight: 600; }
+main { padding: 16px; max-width: 1400px; margin: 0 auto; }
+.grid { display: grid; gap: 12px; }
+.kpis { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+.two { grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); }
+@media (max-width: 520px) { .two { grid-template-columns: 1fr; } }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px; min-width: 0; overflow-x: auto; }
+.card h2 { font-size: 14px; margin: 0 0 10px; font-weight: 650; }
+.card h2 small { font-weight: 400; color: var(--muted); margin-left: 6px; }
+.kpi .lbl { color: var(--text-2); font-size: 12px; }
+.kpi .val { font-size: 24px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.kpi .cmp { font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.up { color: var(--pos); } .down { color: var(--neg); }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th, td { padding: 5px 6px; border-bottom: 1px solid var(--border); text-align: right; white-space: nowrap; }
+th { color: var(--text-2); font-weight: 500; font-size: 12px; position: sticky; top: 0; background: var(--surface); cursor: default; }
+th.sort { cursor: pointer; } th.sort:hover { color: var(--text); }
+td.l, th.l { text-align: left; }
+tbody tr:hover { background: var(--surface-2); }
+.scroll { overflow: auto; max-height: 640px; }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+.bar { position: relative; height: 10px; background: var(--surface-2); border-radius: 2px; min-width: 80px; }
+.bar > i { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 0 4px 4px 0; }
+.bar > b { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--text-2); }
+.div { position: relative; height: 10px; min-width: 90px; background: var(--mid); border-radius: 2px; }
+.div > i { position: absolute; top: 0; bottom: 0; }
+.div::after { content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--muted); }
+.tag { font-size: 11px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--border); color: var(--text-2); }
+.tag.bad { border-color: var(--crit); color: var(--crit); }
+.seatrow { display: grid; grid-template-columns: 90px 1fr; align-items: center; gap: 8px; margin: 6px 0; }
+.seatbar { position: relative; display: flex; height: 26px; gap: 2px; }
+.seatbar > div { height: 100%; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 12px; font-weight: 600; min-width: 0; overflow: hidden; }
+.seatbar > div:first-child { border-radius: 4px 0 0 4px; } .seatbar > div:last-child { border-radius: 0 4px 4px 0; }
+.maj { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--text); left: calc(61 / 120 * 100%); }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--text-2); margin-top: 8px; }
+ul.ins { margin: 0; padding: 0; list-style: none; }
+ul.ins li { padding: 7px 0 7px 22px; border-bottom: 1px solid var(--border); position: relative; }
+ul.ins li::before { position: absolute; left: 2px; top: 7px; font-size: 12px; }
+ul.ins li.up::before { content: "▲"; color: var(--pos); } ul.ins li.down::before { content: "▼"; color: var(--neg); }
+ul.ins li.warn::before { content: "⚠"; color: var(--warn); } ul.ins li.key::before { content: "★"; color: var(--text); }
+ul.ins li.info::before { content: "•"; color: var(--muted); }
+ul.ins li { color: var(--text); }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; align-items: center; }
+input, select { font: inherit; font-size: 13px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); }
+.hide { display: none !important; }
+.muted { color: var(--muted); }
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 100vw); background: var(--surface); border-left: 1px solid var(--border); z-index: 20; overflow: auto; padding: 16px; box-shadow: -8px 0 24px rgba(0,0,0,.15); }
+.drawer h3 { margin: 0 0 4px; font-size: 18px; }
+#tip { position: fixed; pointer-events: none; z-index: 30; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 12px; box-shadow: 0 4px 12px rgba(0,0,0,.15); display: none; font-variant-numeric: tabular-nums; }
+svg text { fill: var(--text-2); font-size: 11px; }
+.empty { padding: 40px; text-align: center; color: var(--text-2); }
+.he { unicode-bidi: plaintext; }
+</style>
+</head>
+<body>
+<header>
+  <div class="hrow">
+    <h1 id="title">Knesset Live Monitor</h1>
+    <span class="sub" id="subtitle"></span>
+    <span class="pill"><span class="dot" id="statusDot"></span><span id="statusText">connecting…</span></span>
+    <span class="spacer"></span>
+    <span class="pill" id="siteStatus" title="Status headline on the official results site" style="display:none"></span>
+    <span class="sub" id="updated"></span>
+    <button id="refresh" title="Poll the source now">Refresh</button>
+    <label class="btn" title="If the official site blocks automatic access, download expc.csv manually and upload it here">Upload CSV<input type="file" id="upload" accept=".csv" hidden></label>
+    <a class="btn" href="/api/export/cities.csv">Export cities</a>
+    <button id="theme" title="Toggle theme">◐</button>
+  </div>
+  <div class="progress"><div id="progressBar" style="width:0"></div></div>
+  <nav id="tabs">
+    <button data-tab="overview" class="on">Overview</button>
+    <button data-tab="parties">Parties &amp; families</button>
+    <button data-tab="cities">Cities</button>
+    <button data-tab="sectors">Sectors</button>
+    <button data-tab="timeline">Timeline</button>
+    <button data-tab="feed">Feed status</button>
+  </nav>
+</header>
+<main>
+  <div id="empty" class="empty hide"></div>
+
+  <section data-sec="overview">
+    <div class="grid kpis" id="kpis"></div>
+    <div class="grid two" style="margin-top:12px">
+      <div class="card"><h2>Seats by bloc <small>majority = 61 (black line)</small></h2><div id="seats"></div><div class="legend" id="blocLegend"></div></div>
+      <div class="card"><h2>Bloc vote share <small>now vs. same localities last time</small></h2><div id="blocTable"></div></div>
+    </div>
+    <div class="grid two" style="margin-top:12px">
+      <div class="card"><h2>Key insights</h2><ul class="ins" id="insights"></ul></div>
+      <div class="card"><h2>Since last update</h2><div id="changes"></div></div>
+    </div>
+    <div class="card" style="margin-top:12px"><h2>Leading parties</h2><div id="topParties"></div></div>
+  </section>
+
+  <section data-sec="parties" class="hide">
+    <div class="card"><h2>All lists <small>seats by Bader-Ofer (D'Hondt); threshold 3.25%</small></h2><div class="scroll" id="partyTable"></div><div class="sub" id="agreements" style="margin-top:8px"></div></div>
+    <div class="card" style="margin-top:12px"><h2>Cross-election families <small>LFL = baseline result of the same localities, weighted by today's counted votes</small></h2><div class="scroll" id="familyTable"></div></div>
+  </section>
+
+  <section data-sec="cities" class="hide">
+    <div class="card">
+      <div class="controls">
+        <input id="q" placeholder="Search locality (Hebrew) or code" size="26">
+        <select id="sector"></select>
+        <select id="repFilter"><option value="0">All localities</option><option value="1">Reporting only</option><option value="0.8">≥ 80% counted</option><option value="-1">Not yet reporting</option></select>
+        <label class="sub"><input type="checkbox" id="flipOnly"> changed leader only</label>
+        <label class="sub">min eligible <input id="minEl" type="number" value="0" step="1000" style="width:90px"></label>
+        <span class="sub" id="cityCount"></span>
+      </div>
+      <div class="scroll" id="cityTable"></div>
+    </div>
+  </section>
+
+  <section data-sec="sectors" class="hide">
+    <div class="card"><h2>Turnout and vote by sector <small>sectors are derived from the baseline result</small></h2><div class="scroll" id="sectorTable"></div></div>
+    <div class="card" style="margin-top:12px"><h2>Bloc swing by sector <small>pp vs. same localities last time</small></h2><div id="sectorSwing"></div></div>
+  </section>
+
+  <section data-sec="timeline" class="hide">
+    <div class="card"><h2>Projected seats by bloc over the night</h2><div id="tlSeats"></div><div class="legend" id="tlLegend"></div></div>
+    <div class="card" style="margin-top:12px"><h2>Counting progress</h2><div id="tlProgress"></div></div>
+  </section>
+
+  <section data-sec="feed" class="hide">
+    <div class="card"><h2>Feed</h2><div id="feed"></div></div>
+  </section>
+</main>
+<div id="drawer" class="drawer hide"></div>
+<div id="tip"></div>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+let S = null, CFG = null, STATUS = null, tab = "overview", citySort = { k: "base_eligible", dir: -1 };
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const nf = n => n == null ? "–" : Math.round(n).toLocaleString("en-US");
+const pc = (x, d = 1) => x == null ? "–" : (x * 100).toFixed(d) + "%";
+const pp = (x, d = 1) => x == null ? "–" : ((x >= 0 ? "+" : "−") + Math.abs(x * 100).toFixed(d));
+const cls = x => x == null ? "" : x > 0.0005 ? "up" : x < -0.0005 ? "down" : "";
+const blocColor = k => `var(--bloc-${k})`;
+const SECTORS = { arab: "Arab & Bedouin", haredi: "Haredi", large: "Large cities", jewish: "Other Jewish", envelopes: "Double envelopes", new: "New" };
+
+try { const t = localStorage.getItem("em-theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+$("#theme").onclick = () => {
+  const dark = getComputedStyle(document.documentElement).colorScheme === "dark";
+  document.documentElement.dataset.theme = dark ? "light" : "dark";
+  try { localStorage.setItem("em-theme", document.documentElement.dataset.theme); } catch (e) {}
+};
+$$("#tabs button").forEach(b => b.onclick = () => {
+  tab = b.dataset.tab;
+  $$("#tabs button").forEach(x => x.classList.toggle("on", x === b));
+  $$("section[data-sec]").forEach(s => s.classList.toggle("hide", s.dataset.sec !== tab));
+  render();
+});
+$("#refresh").onclick = () => fetch("/api/refresh", { method: "POST" }).then(() => setTimeout(load, 1500));
+$("#upload").onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  const kind = /expb/i.test(f.name) ? "expb" : "expc";
+  await fetch("/api/upload?kind=" + kind, { method: "POST", body: await f.arrayBuffer() });
+  setTimeout(load, 1500);
+};
+
+// ---------- tooltip
+const tip = $("#tip");
+function showTip(e, html) { tip.innerHTML = html; tip.style.display = "block"; const x = Math.min(e.clientX + 12, innerWidth - tip.offsetWidth - 8); tip.style.left = x + "px"; tip.style.top = (e.clientY + 12) + "px"; }
+function hideTip() { tip.style.display = "none"; }
+document.addEventListener("mousemove", e => { const t = e.target.closest("[data-tip]"); if (t) showTip(e, t.dataset.tip); else hideTip(); });
+
+// ---------- data
+async function load() {
+  try {
+    const [st, cfg] = await Promise.all([fetch("/api/state").then(r => r.json()), CFG ? CFG : fetch("/api/config").then(r => r.json())]);
+    CFG = cfg;
+    STATUS = await fetch("/api/status").then(r => r.json());
+    if (st.empty) { S = null; } else { S = st; }
+    render();
+  } catch (e) {
+    $("#statusDot").className = "dot err"; $("#statusText").textContent = "dashboard server unreachable";
+  }
+}
+const party = l => (CFG && CFG.current[l]) || { name: "List " + l, he: l, bloc: "X" };
+
+function render() {
+  renderStatus();
+  const empty = !S;
+  $("#empty").classList.toggle("hide", !empty);
+  $$("section[data-sec]").forEach(s => s.classList.toggle("hide", s.dataset.sec !== tab || (empty && tab !== "feed")));
+  if (empty) {
+    $("#empty").innerHTML = `<h2>Waiting for results…</h2><p>The monitor is polling the configured feeds every ${STATUS ? STATUS.poll_seconds : "?"}s.<br>
+      Last error: <span class="muted">${esc(STATUS && STATUS.last_error || "none")}</span></p>
+      <p>If the official site blocks automated access, download <b>expc.csv</b> from it and use <b>Upload CSV</b>.</p>`;
+    if (tab === "feed") renderFeed();
+    return;
+  }
+  ({ overview: renderOverview, parties: renderParties, cities: renderCities, sectors: renderSectors, timeline: renderTimeline, feed: renderFeed })[tab]();
+}
+
+function renderStatus() {
+  const s = STATUS || {};
+  let cls = "dot", txt = "waiting for data";
+  if (s.last_error && !S) { cls += " err"; txt = "source error"; }
+  else if (S) {
+    const age = s.last_poll ? (Date.now() - new Date(s.last_poll).getTime()) / 1000 : 1e9;
+    if (s.last_error) { cls += " stale"; txt = "feed error, showing last data"; }
+    else if (age < 3 * (s.poll_seconds || 30) + 10) { cls += " live"; txt = "live"; }
+    else { cls += " stale"; txt = "stale"; }
+  }
+  $("#statusDot").className = cls; $("#statusText").textContent = txt;
+  const ss = $("#siteStatus");
+  ss.style.display = s.site_status ? "" : "none";
+  ss.innerHTML = s.site_status ? `site: <span class="he">${esc(s.site_status)}</span>` : "";
+  if (S) {
+    $("#title").textContent = `${S.meta.current.name} — live results`;
+    $("#subtitle").textContent = `compared with ${S.meta.baseline.name}`;
+    $("#updated").textContent = `data ${S.meta.last_modified || S.meta.analyzed_at} · checked ${s.last_poll ? s.last_poll.slice(11) : "–"}`;
+    $("#progressBar").style.width = ((S.progress.fraction || 0) * 100) + "%";
+  }
+}
+
+function kpi(lbl, val, cmp, tipText) { return `<div class="card kpi"${tipText ? ` data-tip="${esc(tipText)}"` : ""}><div class="lbl">${lbl}</div><div class="val">${val}</div><div class="cmp">${cmp || "&nbsp;"}</div></div>`; }
+
+function renderOverview() {
+  const n = S.national, b = S.baseline_national, pg = S.progress;
+  const N = S.blocs.find(x => x.key === "N") || {};
+  $("#kpis").innerHTML = [
+    kpi("Counted (est.)", pc(pg.fraction), `${pg.localities_reporting}/${pg.localities_total} localities · envelopes ${pg.envelopes_counted ? "in" : "pending"}`, pg.method),
+    kpi("Valid votes counted", nf(n.valid), `baseline total ${nf(b.valid)}`),
+    kpi("Turnout, same localities", pc(n.turnout_lfl), `<span class="${cls(n.turnout_lfl_delta)}">${pp(n.turnout_lfl_delta)} pp</span> vs ${pc(n.turnout_lfl_base)} last time`, "Ordinary ballots only; compared with the baseline turnout of exactly the localities counted so far"),
+    kpi("Netanyahu bloc", `${N.seats ?? "–"} <span class="sub">seats</span>`, `projected ${N.proj_seats ?? "–"} · baseline ${N.base_seats ?? "–"} · need 61`),
+    kpi("Threshold", nf(n.threshold_votes), "votes needed (3.25% of valid)"),
+    kpi("Invalid ballots", pc(n.invalid_pct, 2), `baseline ${pc(b.invalid_pct, 2)}`),
+  ].join("");
+  // seats
+  const rows = [["Counted", "seats"], ["Projected", "proj_seats"], ["Baseline", "base_seats"]];
+  const order = ["N", "X", "O", "A"];
+  $("#seats").innerHTML = rows.map(([lbl, k]) => {
+    const segs = order.map(key => S.blocs.find(x => x.key === key)).filter(x => x && x[k]);
+    return `<div class="seatrow"><div class="sub">${lbl}${k === "proj_seats" && S.projection ? ` <span class="tag">${S.projection.confidence}</span>` : ""}</div><div class="seatbar">${
+      segs.map(x => `<div style="flex:${x[k]};background:${blocColor(x.key)}" data-tip="${esc(x.name)}: ${x[k]} seats">${x[k]}</div>`).join("") || '<span class="muted">–</span>'}<span class="maj"></span></div></div>`;
+  }).join("");
+  $("#blocLegend").innerHTML = order.map(k => S.blocs.find(x => x.key === k)).filter(Boolean).map(x => `<span><span class="sw" style="background:${blocColor(x.key)}"></span>${esc(x.name)}</span>`).join("");
+  $("#blocTable").innerHTML = `<table><thead><tr><th class="l">Bloc</th><th>Now</th><th>LFL base</th><th>Swing pp</th><th></th><th>Baseline (national)</th></tr></thead><tbody>${
+    S.blocs.map(x => `<tr><td class="l"><span class="sw" style="background:${blocColor(x.key)}"></span>${esc(x.name)}</td><td>${pc(x.pct)}</td><td>${pc(x.lfl_base_pct)}</td>
+      <td class="${cls(x.swing)}">${pp(x.swing)}</td><td>${divBar(x.swing, 0.1)}</td><td>${pc(x.base_pct)}</td></tr>`).join("")}</tbody></table>`;
+  $("#insights").innerHTML = S.insights.map(i => `<li class="${i.level}"><span class="he">${esc(i.text)}</span></li>`).join("");
+  const c = S.changes || {};
+  $("#changes").innerHTML = c.first ? '<p class="muted">First snapshot of this session.</p>' : `
+    <p>${nf(c.votes_added)} valid votes added · ${c.new_localities_count} new localities · ${c.updated_localities_count} updated <span class="muted">(since ${esc((c.since || "").slice(11))})</span></p>
+    ${c.new_localities && c.new_localities.length ? `<p class="sub he">New: ${c.new_localities.map(esc).join(", ")}</p>` : ""}
+    <table><thead><tr><th class="l">List</th><th>Δ share pp</th><th>Δ seats</th></tr></thead><tbody>${(c.party_moves || []).map(m =>
+      `<tr><td class="l">${esc(m.name)} <span class="muted">${esc(m.letter)}</span></td><td class="${cls(m.delta)}">${pp(m.delta, 2)}</td><td>${m.seats_delta ? (m.seats_delta > 0 ? "+" : "") + m.seats_delta : ""}</td></tr>`).join("")}</tbody></table>`;
+  const top = S.parties.filter(p => !p.minor).slice(0, 12);
+  const max = Math.max(...top.map(p => p.pct || 0), 0.05);
+  $("#topParties").innerHTML = `<table><thead><tr><th class="l">List</th><th class="l">Share</th><th>%</th><th>Seats</th><th>Projected</th><th>Family last time</th></tr></thead><tbody>${top.map(p => `
+    <tr><td class="l"><span class="sw" style="background:${blocColor(p.bloc)}"></span>${esc(p.name)} <span class="muted he">${esc(p.letter)}</span></td>
+    <td class="l" style="width:40%">${shareBar(p.pct, max, blocColor(p.bloc), S.meta.threshold)}</td><td>${pc(p.pct, 2)}</td><td><b>${p.seats}</b></td><td>${p.proj_seats ?? "–"}</td><td>${pc(p.base_family_pct)}</td></tr>`).join("")}</tbody></table>`;
+}
+
+function shareBar(v, max, color, threshold) {
+  return `<div class="bar"><i style="width:${Math.min(100, (v || 0) / max * 100)}%;background:${color}"></i>${threshold ? `<b style="left:${threshold / max * 100}%" title="threshold"></b>` : ""}</div>`;
+}
+function divBar(v, span) {
+  if (v == null) return "";
+  const w = Math.min(50, Math.abs(v) / span * 50);
+  return `<div class="div"><i style="${v >= 0 ? `left:50%;width:${w}%;background:var(--pos);border-radius:0 4px 4px 0` : `right:50%;width:${w}%;background:var(--neg);border-radius:4px 0 0 4px`}"></i></div>`;
+}
+
+function renderParties() {
+  const max = Math.max(...S.parties.map(p => p.pct || 0), 0.05);
+  $("#partyTable").innerHTML = `<table><thead><tr><th class="l">Letter</th><th class="l">List</th><th class="l">Bloc</th><th>Votes</th><th>%</th><th class="l"></th><th>Seats</th><th>Proj. %</th><th>Proj. seats</th><th>Family baseline</th><th>LFL swing</th><th>Status</th></tr></thead><tbody>${
+    S.parties.filter(p => !p.minor || p.votes).map(p => {
+      const fam = S.families.find(f => f.key === p.family);
+      const lfl = p.lfl_base_pct != null && p.pct != null ? (fam && fam.swing) : null;
+      const flag = p.assumed ? ' <span class="tag" title="Not in config: bloc and family copied from the same letter in the baseline election">assumed by letter</span>'
+        : p.unclassified ? ' <span class="tag" title="New letter: add it to config.json to classify it">unclassified</span>' : "";
+      return `<tr><td class="l he"><b>${esc(p.letter)}</b></td><td class="l">${esc(p.name)}${p.he && p.he !== p.name ? ` <span class="muted he">${esc(p.he)}</span>` : ""}${flag}</td><td class="l"><span class="sw" style="background:${blocColor(p.bloc)}"></span>${p.bloc}</td>
+      <td>${nf(p.votes)}</td><td>${pc(p.pct, 2)}</td><td class="l" style="min-width:120px">${shareBar(p.pct, max, blocColor(p.bloc), S.meta.threshold)}</td>
+      <td><b>${p.seats}</b></td><td>${pc(p.proj_pct, 2)}</td><td>${p.proj_seats ?? "–"}</td><td>${pc(p.base_family_pct)}</td><td class="${cls(lfl)}">${pp(lfl)}</td>
+      <td>${p.passes ? '<span class="tag">passes</span>' : `<span class="tag bad">−${nf(p.to_threshold)} votes</span>`}</td></tr>`;
+    }).join("")}</tbody></table>`;
+  const a = S.agreements;
+  $("#agreements").innerHTML = (a.active.length || a.void.length
+    ? `Active surplus agreements: ${a.active.map(x => x.join("–")).join(", ") || "none"}${a.void.length ? ` · void: ${a.void.map(x => x.join("–")).join(", ")}` : ""}`
+    : `<b>No surplus agreements configured</b> – the results site does not publish them, so seat counts can be off by ±1 per list. Add them under <code>agreements</code> in config.json.`)
+    + ` · Baseline seats: ${esc(S.baseline_national.seats_source || "")}.`;
+  $("#familyTable").innerHTML = `<table><thead><tr><th class="l">Family</th><th class="l">Lists now</th><th class="l">Lists then</th><th>Now</th><th>LFL base</th><th>Swing pp</th><th></th><th>Baseline</th><th>Seats</th><th>Proj.</th><th>Base seats</th></tr></thead><tbody>${
+    S.families.map(f => `<tr><td class="l"><span class="sw" style="background:${f.color}"></span>${esc(f.name)}</td><td class="l he">${f.letters_now.map(esc).join(" ")}</td><td class="l he">${f.letters_base.map(esc).join(" ")}</td>
+      <td>${pc(f.pct)}</td><td>${pc(f.lfl_base_pct)}</td><td class="${cls(f.swing)}">${pp(f.swing)}</td><td>${divBar(f.swing, 0.08)}</td><td>${pc(f.base_pct)}</td><td>${f.seats}</td><td>${f.proj_seats ?? "–"}</td><td>${f.base_seats}</td></tr>`).join("")}</tbody></table>`;
+}
+
+// ---------- cities
+function cityRows() {
+  const q = $("#q").value.trim(), sec = $("#sector").value, rep = +$("#repFilter").value, flip = $("#flipOnly").checked, minEl = +$("#minEl").value || 0;
+  let rows = S.cities.filter(c => (!q || c.name.includes(q) || String(c.code) === q) && (!sec || c.sector === sec)
+    && (rep === 0 || (rep === -1 ? !c.valid : (rep === 1 ? c.valid : c.reporting >= rep))) && (!flip || c.flipped) && ((c.base_eligible || c.eligible || 0) >= minEl));
+  const k = citySort.k, d = citySort.dir;
+  const val = c => k === "swingN" ? (c.bloc_swing ? c.bloc_swing.N : null) : k === "swingO" ? (c.bloc_swing ? c.bloc_swing.O : null) : k === "swingA" ? (c.bloc_swing ? c.bloc_swing.A : null) : c[k];
+  rows.sort((a, b) => { const x = val(a), y = val(b); if (x == null && y == null) return 0; if (x == null) return 1; if (y == null) return -1; return typeof x === "string" ? d * x.localeCompare(y, "he") : d * (x - y); });
+  return rows;
+}
+function renderCities() {
+  const sel = $("#sector");
+  if (!sel.options.length) sel.innerHTML = `<option value="">All sectors</option>` + Object.entries(SECTORS).map(([k, v]) => `<option value="${k}">${v}</option>`).join("");
+  const rows = cityRows();
+  $("#cityCount").textContent = `${rows.length} localities`;
+  const H = (k, t, l) => `<th class="sort${l ? " l" : ""}" data-k="${k}">${t}${citySort.k === k ? (citySort.dir > 0 ? " ▲" : " ▼") : ""}</th>`;
+  const blocCell = (c, k) => { const s = c.bloc_swing && c.bloc_swing[k]; return `<td>${pc(c.blocs && c.blocs[k])}</td><td class="${cls(s)}">${pp(s)}</td>`; };
+  $("#cityTable").innerHTML = `<table><thead><tr>${H("name", "Locality", 1)}${H("sector", "Sector", 1)}${H("reporting", "Counted")}${H("base_eligible", "Eligible (base)")}${H("turnout", "Turnout")}${H("base_turnout", "Base")}${H("turnout_delta", "Δ pp")}
+    <th class="l">Leader now</th><th class="l">Leader then</th><th>N</th>${H("swingN", "Δ N")}<th>O</th>${H("swingO", "Δ O")}<th>A</th>${H("swingA", "Δ A")}</tr></thead><tbody>${
+    rows.slice(0, 400).map(c => `<tr data-code="${c.code}" style="cursor:pointer"><td class="l he">${esc(c.name)}${c.flipped ? ' <span class="tag">changed</span>' : ""}</td><td class="l">${SECTORS[c.sector] || c.sector}</td>
+      <td>${c.valid ? pc(c.reporting, 0) : '<span class="muted">–</span>'}</td><td>${nf(c.base_eligible)}</td><td>${pc(c.turnout)}</td><td>${pc(c.base_turnout)}</td><td class="${cls(c.turnout_delta)}">${pp(c.turnout_delta)}</td>
+      <td class="l">${c.winner ? `<span class="sw" style="background:${blocColor(party(c.winner).bloc)}"></span>${esc(party(c.winner).name)} ${pc(c.winner_pct, 0)}` : ""}</td>
+      <td class="l">${c.base_winner ? `<span class="sw" style="background:${blocColor((CFG.baseline[c.base_winner] || { bloc: "X" }).bloc)}"></span>${esc((CFG.baseline[c.base_winner] || { name: c.base_winner }).name)} ${pc(c.base_winner_pct, 0)}` : ""}</td>
+      ${blocCell(c, "N")}${blocCell(c, "O")}${blocCell(c, "A")}</tr>`).join("")}</tbody></table>${rows.length > 400 ? `<p class="muted">Showing first 400 – refine the filter.</p>` : ""}`;
+  $$("#cityTable th.sort").forEach(th => th.onclick = () => { const k = th.dataset.k; citySort = { k, dir: citySort.k === k ? -citySort.dir : (k === "name" || k === "sector" ? 1 : -1) }; renderCities(); });
+  $$("#cityTable tr[data-code]").forEach(tr => tr.onclick = () => openCity(+tr.dataset.code));
+}
+["#q", "#sector", "#repFilter", "#flipOnly", "#minEl"].forEach(s => $(s).addEventListener("input", () => S && renderCities()));
+
+async function openCity(code) {
+  const d = await fetch("/api/city/" + code).then(r => r.json());
+  const c = S.cities.find(x => x.code === code) || {};
+  const dr = $("#drawer");
+  const now = d.now, base = d.base;
+  const max = Math.max(...(d.families || []).map(f => Math.max(f.pct || 0, f.base_pct || 0)), 0.05);
+  dr.innerHTML = `<div class="hrow"><h3 class="he">${esc(d.name)}</h3><span class="tag">${esc(d.sector)}</span><span class="spacer"></span><button id="closeDr">Close</button></div>
+    <p class="sub">code ${d.code} · counted ${c.valid ? pc(c.reporting, 0) : "not yet"}</p>
+    <div class="grid kpis">${kpi("Turnout", pc(c.turnout), `base ${pc(c.base_turnout)} <span class="${cls(c.turnout_delta)}">${pp(c.turnout_delta)} pp</span>`)}${kpi("Valid votes", nf(now && now.valid), `base ${nf(base && base.valid)}`)}</div>
+    <h2 style="font-size:14px;margin:16px 0 6px">Families: now vs. last time</h2>
+    <table><thead><tr><th class="l">Family</th><th class="l"></th><th>Now</th><th>Then</th><th>Δ pp</th></tr></thead><tbody>${(d.families || []).map(f => `<tr><td class="l"><span class="sw" style="background:${f.color}"></span>${esc(f.name)}</td>
+      <td class="l" style="width:35%"><div class="bar" data-tip="now ${pc(f.pct)}"><i style="width:${(f.pct || 0) / max * 100}%;background:${f.color}"></i></div><div class="bar" style="margin-top:2px;opacity:.45" data-tip="then ${pc(f.base_pct)}"><i style="width:${(f.base_pct || 0) / max * 100}%;background:${f.color}"></i></div></td>
+      <td>${pc(f.pct)}</td><td>${pc(f.base_pct)}</td><td class="${cls(f.delta)}">${pp(f.delta)}</td></tr>`).join("")}</tbody></table>
+    <p class="muted" style="font-size:12px">Upper bar = now, faded bar = baseline.</p>
+    <div class="grid two" style="margin-top:12px;grid-template-columns:1fr 1fr">
+      <div><h2 style="font-size:14px">Lists now</h2><table><tbody>${now ? now.letters.slice(0, 15).map(l => `<tr><td class="l">${esc(l.name)}</td><td>${nf(l.votes)}</td><td>${pc(l.pct)}</td></tr>`).join("") : '<tr><td class="muted l">not reported</td></tr>'}</tbody></table></div>
+      <div><h2 style="font-size:14px">Lists last time</h2><table><tbody>${base ? base.letters.slice(0, 15).map(l => `<tr><td class="l">${esc(l.name)}</td><td>${nf(l.votes)}</td><td>${pc(l.pct)}</td></tr>`).join("") : '<tr><td class="muted l">no baseline</td></tr>'}</tbody></table></div>
+    </div>`;
+  dr.classList.remove("hide");
+  $("#closeDr").onclick = () => dr.classList.add("hide");
+}
+document.addEventListener("keydown", e => { if (e.key === "Escape") $("#drawer").classList.add("hide"); });
+
+function renderSectors() {
+  $("#sectorTable").innerHTML = `<table><thead><tr><th class="l">Sector</th><th>Localities in</th><th>Counted (est.)</th><th>Valid now</th><th>Turnout</th><th>Same localities then</th><th>Δ pp</th>${S.blocs.map(b => `<th>${b.key} now</th><th>${b.key} then</th>`).join("")}</tr></thead><tbody>${
+    S.sectors.map(s => `<tr><td class="l">${esc(s.name)}</td><td>${s.reporting}/${s.localities}</td><td>${pc(s.progress, 0)}</td><td>${nf(s.now_valid)}</td><td>${pc(s.turnout)}</td><td>${pc(s.turnout_base)}</td><td class="${cls(s.turnout_delta)}">${pp(s.turnout_delta)}</td>
+      ${S.blocs.map(b => `<td>${pc(s.blocs[b.key] && s.blocs[b.key].pct)}</td><td class="muted">${pc(s.blocs[b.key] && s.blocs[b.key].lfl)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+  $("#sectorSwing").innerHTML = `<table><thead><tr><th class="l">Sector</th>${S.blocs.map(b => `<th class="l"><span class="sw" style="background:${blocColor(b.key)}"></span>${esc(b.name)}</th>`).join("")}</tr></thead><tbody>${
+    S.sectors.filter(s => s.now_valid).map(s => `<tr><td class="l">${esc(s.name)}</td>${S.blocs.map(b => { const x = s.blocs[b.key]; const d = x && x.pct != null && x.lfl != null ? x.pct - x.lfl : null;
+      return `<td class="l"><div style="display:flex;gap:6px;align-items:center"><span class="${cls(d)}" style="width:48px;text-align:right">${pp(d)}</span>${divBar(d, 0.15)}</div></td>`; }).join("")}</tr>`).join("")}</tbody></table>`;
+}
+
+// ---------- timeline (SVG, one axis per chart)
+function lineChart(el, series, yMax, yFmt, refLine) {
+  const H = (S.history || []).filter(h => h.valid > 0);
+  const W = Math.max(320, el.clientWidth || 800), Ht = 260, m = { l: 40, r: 96, t: 10, b: 24 };
+  if (H.length < 2) { el.innerHTML = '<p class="muted">Needs at least two updates.</p>'; return; }
+  const xs = i => m.l + i / (H.length - 1) * (W - m.l - m.r), ys = v => m.t + (1 - v / yMax) * (Ht - m.t - m.b);
+  let g = "";
+  for (let k = 0; k <= 4; k++) { const v = yMax * k / 4; g += `<line x1="${m.l}" x2="${W - m.r}" y1="${ys(v)}" y2="${ys(v)}" stroke="var(--border)"/><text x="${m.l - 6}" y="${ys(v) + 4}" text-anchor="end">${yFmt(v)}</text>`; }
+  if (refLine != null) g += `<line x1="${m.l}" x2="${W - m.r}" y1="${ys(refLine)}" y2="${ys(refLine)}" stroke="var(--text)" stroke-dasharray="4 3"/><text x="${m.l + 4}" y="${ys(refLine) - 5}">majority ${refLine}</text>`;
+  [0, H.length - 1].forEach(i => g += `<text x="${xs(i)}" y="${Ht - 6}" text-anchor="${i ? "end" : "start"}">${esc(H[i].t.slice(11, 16))}</text>`);
+  series.forEach(s => {
+    const pts = H.map((h, i) => [i, s.get(h)]).filter(p => p[1] != null);
+    if (!pts.length) return;
+    g += `<polyline fill="none" stroke="${s.color}" stroke-width="2" points="${pts.map(([i, v]) => `${xs(i)},${ys(v)}`).join(" ")}"/>`;
+    const [li, lv] = pts[pts.length - 1];
+    g += `<circle cx="${xs(li)}" cy="${ys(lv)}" r="4" fill="${s.color}" stroke="var(--surface)" stroke-width="2"/><text x="${xs(li) + 8}" y="${ys(lv) + 4}">${esc(s.label)} ${yFmt(lv)}</text>`;
+  });
+  g += H.map((h, i) => `<rect x="${xs(i) - (W / H.length) / 2}" y="${m.t}" width="${W / H.length}" height="${Ht - m.t - m.b}" fill="transparent" data-tip="${esc(h.t.slice(11, 19))}<br>${series.map(s => `${esc(s.label)}: ${s.get(h) == null ? "–" : yFmt(s.get(h))}`).join("<br>")}"/>`).join("");
+  el.innerHTML = `<svg width="100%" viewBox="0 0 ${W} ${Ht}" role="img">${g}</svg>`;
+}
+function renderTimeline() {
+  const blocs = S.blocs.map(b => ({ label: b.key, color: blocColor(b.key), get: h => h.blocs[b.key] ? (h.blocs[b.key][2] ?? h.blocs[b.key][1]) : null }));
+  lineChart($("#tlSeats"), blocs, 80, v => Math.round(v), 61);
+  $("#tlLegend").innerHTML = S.blocs.map(b => `<span><span class="sw" style="background:${blocColor(b.key)}"></span>${esc(b.key)} = ${esc(b.name)}</span>`).join("");
+  lineChart($("#tlProgress"), [{ label: "counted", color: "var(--bloc-N)", get: h => h.progress }], 1, v => Math.round(v * 100) + "%");
+}
+
+function renderFeed() {
+  const s = STATUS || {};
+  const cand = s.candidates || {};
+  $("#feed").innerHTML = `<table><tbody>
+    <tr><td class="l">Active expc source</td><td class="l">${esc(s.expc_url || "–")}</td></tr>
+    <tr><td class="l">Active expb source</td><td class="l">${esc(s.expb_url || "–")}</td></tr>
+    <tr><td class="l">Polls / changes</td><td class="l">${s.polls} / ${s.changes} (every ${s.poll_seconds}s)</td></tr>
+    <tr><td class="l">Last poll / change</td><td class="l">${esc(s.last_poll || "–")} / ${esc(s.last_change || "–")}</td></tr>
+    <tr><td class="l">Last error</td><td class="l">${esc(s.last_error || "none")}</td></tr>
+    <tr><td class="l">Results site</td><td class="l">${esc(s.site || "–")} ${s.site_error ? `<span class="down">(${esc(s.site_error)})</span>` : ""}</td></tr>
+    <tr><td class="l">Site status headline</td><td class="l he">${esc(s.site_status || "–")}</td></tr>
+    <tr><td class="l">Site national totals</td><td class="l">${s.site_totals ? `eligible ${nf(s.site_totals.eligible)} · voters ${nf(s.site_totals.voters)} · valid ${nf(s.site_totals.valid)}` : "–"}</td></tr>
+    <tr><td class="l">Data encoding / hash</td><td class="l">${S ? esc((S.meta.encoding || "") + " " + (S.meta.hash || "")) : "–"}</td></tr>
+    <tr><td class="l">Reporting mode</td><td class="l">${S ? esc(S.national.reporting_mode) : "–"}</td></tr>
+    <tr><td class="l">expc candidates</td><td class="l">${(cand.expc || []).map(esc).join("<br>")}</td></tr>
+    <tr><td class="l">expb candidates</td><td class="l">${(cand.expb || []).map(esc).join("<br>")}</td></tr>
+  </tbody></table>`;
+}
+
+load();
+setInterval(load, 10000);
+addEventListener("resize", () => tab === "timeline" && S && renderTimeline());
+</script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+data/snapshots/
+data/sim/
+data/inbox/
+data/history_*.jsonl
+*.tar.gz
