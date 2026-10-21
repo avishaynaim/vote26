@@ -77,6 +77,19 @@ Global search (press `/`), toasts on every update, newly reported localities fla
 * **Sectors** (derived from the 2022 result): Arab & Bedouin, Haredi, large cities, other Jewish localities, double envelopes. Each shows turnout and bloc swing.
 * **Insights**, **since-last-update** panel, **timeline**, CSV export, archive of every version of the feed.
 
+## Hosted version (no server)
+
+`web/engine.js` is a JavaScript port of the engine (analysis, Bader-Ofer seats, the 5-day mock simulation). It answers the dashboard's `/api/...` requests inside the browser, so the same `static/index.html` runs as a static page with no server. That makes it possible to host on a claude.ai Artifact or GitHub Pages.
+
+```bash
+python3 tools/build_web.py      # writes web/dist/ (index.html, engine.js, data/)
+python3 -m http.server --directory web/dist 8040   # try it locally
+```
+
+* It runs the simulation on the 2022 data from the site. You can also upload a real `expc.csv` / `expb.csv` with **Upload CSV**.
+* It cannot poll the live site, because browsers block cross-site requests. For live monitoring on election night use the Python server.
+* The JS engine was checked against the Python engine on the full 2022 data. Every national, party, family, bloc, sector, projection and locality value matches.
+
 ## Analysis assumptions you should check (`config.json`)
 
 These are my classifications, not data from the site:
@@ -116,7 +129,8 @@ election_monitor/seats.py     Bader-Ofer seat allocation
 election_monitor/analysis.py  like-for-like comparison, sectors, projection, localities, insights
 election_monitor/server.py    polling loop, snapshots/history, HTTP API
 election_monitor/simulate.py  mock live election (LiveSim, speed controls) and a simple replay
-static/index.html             dashboard
+static/index.html             dashboard (served by the Python server, or with web/engine.js as a static page)
+web/engine.js                 in-browser engine (JS port) for the hosted version; tools/build_web.py builds web/dist
 data/baseline/k25/            2022 data downloaded from votes25.bechirot.gov.il
 tests/                        tests; fixtures are pages saved from votes25.bechirot.gov.il
 ```

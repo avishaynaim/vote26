@@ -278,7 +278,11 @@ function renderSimBar() {
     <span class="sub">${sim.finished ? "הספירה הסתיימה" : eta != null ? `סיום בעוד ~${eta >= 3600 ? (eta / 3600).toFixed(1) + " שעות" : eta >= 60 ? Math.round(eta / 60) + " דק׳" : eta + " שנ׳"}` : "מושהה"}</span>`;
   $$("[data-speed]", bar).forEach(b => b.onclick = () => simCmd({ speed: +b.dataset.speed }));
   $("#simPause").onclick = () => simCmd({ action: sim.running ? "pause" : "resume" });
-  $("#simReset").onclick = () => { if (confirm("להתחיל את הסימולציה מההתחלה?")) simCmd({ action: "reset" }); };
+  $("#simReset").onclick = e => {  // two-step confirm inside the page (no browser dialogs)
+    const b = e.currentTarget;
+    if (b.dataset.armed) { simCmd({ action: "reset" }); return; }
+    b.dataset.armed = "1"; b.textContent = "לחצו שוב לאישור"; setTimeout(() => { delete b.dataset.armed; b.textContent = "⟲ התחלה מחדש"; }, 3000);
+  };
 }
 async function simCmd(body) {
   STATUS.sim = await api("/api/sim", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });

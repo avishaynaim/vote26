@@ -780,8 +780,8 @@ class Analyzer:
         def add(kind, level, text):
             ins.append({"kind": kind, "level": level, "text": text})
 
-        def pp(x):
-            return f"{x*100:+.1f}"
+        def pp(x):  # the LRM keeps the sign in front of the number inside Hebrew text
+            return f"\u200e{x*100:+.1f}"
 
         if not nat["valid"]:
             add("status", "info", "טרם פורסמו תוצאות. המערכת ממשיכה לבדוק את האתר.")

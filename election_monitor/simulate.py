@@ -156,7 +156,8 @@ class LiveSim:
             if r.code == 9999:
                 t = rnd.uniform(0.55, 1.0)
             else:
-                t = min(0.98, start[r.code] + rnd.random() * span[r.code])
+                # squared: most ballot boxes arrive in the first night, the rest trickle in over the days
+                t = min(0.98, start[r.code] + rnd.random() * span[r.code]) ** 2
             self.when.append(t * self.duration)
         self.order = sorted(range(len(self.rows)), key=lambda i: self.when[i])
 
