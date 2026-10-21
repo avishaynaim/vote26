@@ -10,7 +10,7 @@ from election_monitor.analysis import Analyzer
 from election_monitor.feed import ENVELOPES_CODE, load_file
 from election_monitor.seats import bader_ofer
 from election_monitor.server import load_analyzer
-from election_monitor.simulate import Replay
+from election_monitor.simulate import LiveSim, Replay
 from election_monitor.site import find_csv_links, parse_results_page
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -126,6 +126,34 @@ class TestAnalysis(unittest.TestCase):
         self.assertTrue(an.cur.party("מחל")["assumed"])
         self.assertTrue(an.cur.party("זזז")["unclassified"])
         self.assertEqual(an.cur.party("זזז")["name"], "רשימה חדשה")
+
+
+class TestLiveSim(unittest.TestCase):
+    def test_mock_feed_is_consistent_and_controllable(self):
+        an = load_analyzer(CFG, "live", "25")
+        tmp = tempfile.mkdtemp()
+        try:
+            sim = LiveSim(os.path.join(K25, "expb.csv"), tmp, an.base.family, an._sector_of, days=5, speed=1000)
+            self.assertEqual(sim.status()["ballots_reported"], 0)
+            self.assertEqual(sim.control(speed=30)["speed"], 30)
+            self.assertEqual(sim.control(speed=7)["speed"], 30)  # unknown speed ignored
+            self.assertFalse(sim.control(action="pause")["running"])
+            sim.sim_seconds = sim.duration / 2
+            sim._advance()
+            half = sim.reported
+            self.assertTrue(0 < half < len(sim.rows))
+            sim._write()
+            expc, expb = load_file(os.path.join(tmp, "expc.csv")), load_file(os.path.join(tmp, "expb.csv"))
+            self.assertEqual(len(expb.rows), half)
+            self.assertEqual(sum(r.valid for r in expc.rows), sum(r.valid for r in expb.rows))
+            for r in expb.rows:
+                self.assertEqual(sum(r.votes.values()), r.valid)
+                self.assertLessEqual(r.voters, r.eligible if r.code != ENVELOPES_CODE else r.voters)
+            st = an.analyze(expc, expb)
+            self.assertAlmostEqual(st["progress"]["fraction"], half / len(EXPB.rows), places=3)
+            self.assertEqual(sim.control(action="reset")["ballots_reported"], 0)
+        finally:
+            shutil.rmtree(tmp)
 
 
 if __name__ == "__main__":

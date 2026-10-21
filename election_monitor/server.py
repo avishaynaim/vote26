@@ -58,6 +58,7 @@ class Monitor:
                        "last_poll": None, "last_change": None, "last_error": None, "expc_url": None,
                        "expb_url": None, "poll_seconds": cfg.get("poll_seconds", 30), "candidates": {},
                        "site": self.site_url, "site_status": None, "site_totals": None, "site_error": None}
+        self.sim = None  # LiveSim when running a simulation
         self._wake = threading.Event()
         self._stop = threading.Event()
         self._discovered = False
@@ -87,11 +88,25 @@ class Monitor:
             f.write(text)
 
     # ----------------------------------------------------------------- core
+    def reset_state(self) -> None:
+        """Forget all results (used when a simulation restarts)."""
+        with self.lock:
+            self.state = self.state_gz = self.current_file = self.ballots = None
+            self.history = []
+            self.last_hash = None
+            if os.path.exists(self.history_path):
+                os.remove(self.history_path)
+        for src in (self.expc, self.expb):
+            src._mtime.clear()
+
     def _ingest(self, rf: ResultFile, meta: dict, record: bool = True) -> None:
         prev = self.state
+        if self.sim is not None:
+            meta = {**meta, "sim_clock": self.sim.clock_label(), "simulation": True}
         state = self.analyzer.analyze(rf, self.ballots, meta=meta, previous=prev)
         entry = {
             "t": state["meta"]["analyzed_at"],
+            "vt": state["meta"].get("sim_clock"),
             "progress": state["progress"].get("fraction"),
             "valid": state["national"]["valid"],
             "turnout_lfl": state["national"]["turnout_lfl"],
@@ -272,7 +287,9 @@ def make_handler(mon: Monitor):
                     return self._send(200, gz, "application/json; charset=utf-8", gz=True)
                 return self._send(200, gzip.decompress(gz), "application/json; charset=utf-8")
             if path == "/api/status":
-                return self._json(mon.status)
+                return self._json({**mon.status, "sim": mon.sim.status() if mon.sim else None})
+            if path == "/api/sim":
+                return self._json(mon.sim.status() if mon.sim else {"error": "not a simulation"}, 200 if mon.sim else 404)
             if path == "/api/config":
                 a = mon.analyzer
                 letters_now = set(a.cur.cfg.get("parties", {})) | set(a.cur.names)
@@ -281,6 +298,20 @@ def make_handler(mon: Monitor):
                 return self._json({"families": mon.cfg["families"], "blocs": mon.cfg["blocs"],
                                    "current": {l: a.cur.party(l) for l in letters_now},
                                    "baseline": {l: a.base.party(l) for l in a.base_letters}})
+            m = re.match(r"^/api/city/(\d+)/ballots$", path)
+            if m:
+                return self._json(mon.analyzer.city_ballots(mon.ballots, int(m.group(1))))
+            m = re.match(r"^/api/ballot/(\d+)/([^/]+)$", path)
+            if m:
+                d = mon.analyzer.ballot_detail(mon.ballots, int(m.group(1)), urllib.parse.unquote(m.group(2)))
+                return self._json(d) if d else self._json({"error": "not found"}, 404)
+            m = re.match(r"^/api/party/([^/]+)$", path)
+            if m:
+                d = mon.analyzer.party_detail(mon.current_file, urllib.parse.unquote(m.group(1)))
+                return self._json(d) if d else self._json({"error": "no data"}, 404)
+            if path == "/api/search":
+                q = urllib.parse.parse_qs(u.query).get("q", [""])[0]
+                return self._json(mon.analyzer.search(mon.current_file, q))
             m = re.match(r"^/api/city/(\d+)$", path)
             if m:
                 d = mon.analyzer.city_detail(mon.current_file, int(m.group(1)))
@@ -291,6 +322,19 @@ def make_handler(mon: Monitor):
 
         def do_POST(self):
             u = urllib.parse.urlparse(self.path)
+            if u.path == "/api/sim":
+                if not mon.sim:
+                    return self._json({"error": "not a simulation"}, 404)
+                n = int(self.headers.get("Content-Length") or 0)
+                try:
+                    body = json.loads(self.rfile.read(n) or b"{}") if n < 10000 else {}
+                except ValueError:
+                    body = {}
+                st = mon.sim.control(speed=body.get("speed"), action=body.get("action"))
+                if body.get("action") == "reset":
+                    mon.reset_state()
+                mon.poke()
+                return self._json(st)
             if u.path == "/api/refresh":
                 mon.poke()
                 return self._json({"ok": True})

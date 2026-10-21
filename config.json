@@ -1,6 +1,5 @@
 {
   "_comment": "Data comes only from the Central Elections Committee results site. List names and official seats are read from the site (national page); the bloc/family classification below is an analysis assumption you can edit. Lists of the monitored election that are not listed here inherit the classification of the SAME LETTER in the baseline election (shown as 'assumed by letter' in the dashboard).",
-
   "current": "live",
   "baseline": "25",
   "poll_seconds": 30,
@@ -10,63 +9,194 @@
   "threshold": 0.0325,
   "seats": 120,
   "majority": 61,
-
   "families": {
-    "likud":     {"name": "Likud", "color": "#3a7bec"},
-    "far_right": {"name": "Religious Zionism / Otzma Yehudit", "color": "#8b5cf6"},
-    "shas":      {"name": "Shas", "color": "#2bbfd8"},
-    "utj":       {"name": "United Torah Judaism", "color": "#a78bfa"},
-    "lapid":     {"name": "Yesh Atid", "color": "#f0506e"},
-    "gantz":     {"name": "National Unity (Gantz)", "color": "#e070d6"},
-    "left":      {"name": "Labor / Meretz", "color": "#ff8a3d"},
-    "yb":        {"name": "Yisrael Beitenu", "color": "#c04d8a"},
-    "raam":      {"name": "Ra'am", "color": "#2fb36f"},
-    "joint":     {"name": "Hadash-Ta'al / Balad", "color": "#9bd650"},
-    "right_alt": {"name": "Jewish Home", "color": "#b45309"},
-    "other":     {"name": "Other lists", "color": "#9ca3af"}
+    "likud": {
+      "name": "Likud",
+      "color": "#3a7bec",
+      "he": "הליכוד"
+    },
+    "far_right": {
+      "name": "Religious Zionism / Otzma Yehudit",
+      "color": "#8b5cf6",
+      "he": "הציונות הדתית / עוצמה יהודית"
+    },
+    "shas": {
+      "name": "Shas",
+      "color": "#2bbfd8",
+      "he": "ש\"ס"
+    },
+    "utj": {
+      "name": "United Torah Judaism",
+      "color": "#a78bfa",
+      "he": "יהדות התורה"
+    },
+    "lapid": {
+      "name": "Yesh Atid",
+      "color": "#f0506e",
+      "he": "יש עתיד"
+    },
+    "gantz": {
+      "name": "National Unity (Gantz)",
+      "color": "#e070d6",
+      "he": "המחנה הממלכתי (גנץ)"
+    },
+    "left": {
+      "name": "Labor / Meretz",
+      "color": "#ff8a3d",
+      "he": "העבודה / מרצ"
+    },
+    "yb": {
+      "name": "Yisrael Beitenu",
+      "color": "#c04d8a",
+      "he": "ישראל ביתנו"
+    },
+    "raam": {
+      "name": "Ra'am",
+      "color": "#2fb36f",
+      "he": "רע\"ם"
+    },
+    "joint": {
+      "name": "Hadash-Ta'al / Balad",
+      "color": "#9bd650",
+      "he": "חד\"ש-תע\"ל / בל\"ד"
+    },
+    "right_alt": {
+      "name": "Jewish Home",
+      "color": "#b45309",
+      "he": "הבית היהודי"
+    },
+    "other": {
+      "name": "Other lists",
+      "color": "#9ca3af",
+      "he": "רשימות אחרות"
+    }
   },
-
   "blocs": {
-    "N": {"name": "Netanyahu bloc", "color": "#2a78d6"},
-    "O": {"name": "Opposition (Jewish)", "color": "#eb6834"},
-    "A": {"name": "Arab parties", "color": "#1baf7a"},
-    "X": {"name": "Other / unaligned", "color": "#eda100"}
+    "N": {
+      "name": "Netanyahu bloc",
+      "color": "#2a78d6",
+      "he": "גוש נתניהו"
+    },
+    "O": {
+      "name": "Opposition (Jewish)",
+      "color": "#eb6834",
+      "he": "האופוזיציה (יהודית)"
+    },
+    "A": {
+      "name": "Arab parties",
+      "color": "#1baf7a",
+      "he": "המפלגות הערביות"
+    },
+    "X": {
+      "name": "Other / unaligned",
+      "color": "#eda100",
+      "he": "אחרות / לא משויכות"
+    }
   },
-
   "elections": {
     "live": {
       "name": "Live election",
       "_comment": "The monitored site. Default = the link given for this project. When the new site is published, change 'site' (or run with --site URL). Result-file links are read from the site's own pages, nothing is guessed.",
       "site": "https://votes25.bechirot.gov.il/",
-      "sources": {"expc": ["data/inbox/expc.csv"], "expb": ["data/inbox/expb.csv"]},
+      "sources": {
+        "expc": [
+          "data/inbox/expc.csv"
+        ],
+        "expb": [
+          "data/inbox/expb.csv"
+        ]
+      },
       "inherit_by_letter": true,
       "parties": {},
       "agreements": []
     },
-
     "25": {
       "name": "25th Knesset",
       "site": "https://votes25.bechirot.gov.il/",
       "baseline_dir": "data/baseline/k25",
       "parties": {
-        "מחל": {"short": "Likud", "bloc": "N", "family": "likud"},
-        "פה":  {"short": "Yesh Atid", "bloc": "O", "family": "lapid"},
-        "ט":   {"short": "Religious Zionism", "bloc": "N", "family": "far_right"},
-        "כן":  {"short": "National Unity", "bloc": "O", "family": "gantz"},
-        "שס":  {"short": "Shas", "bloc": "N", "family": "shas"},
-        "ג":   {"short": "United Torah Judaism", "bloc": "N", "family": "utj"},
-        "ל":   {"short": "Yisrael Beitenu", "bloc": "O", "family": "yb"},
-        "עם":  {"short": "Ra'am", "bloc": "A", "family": "raam"},
-        "ום":  {"short": "Hadash-Ta'al", "bloc": "A", "family": "joint"},
-        "אמת": {"short": "Labor", "bloc": "O", "family": "left"},
-        "מרצ": {"short": "Meretz", "bloc": "O", "family": "left"},
-        "ד":   {"short": "Balad", "bloc": "A", "family": "joint"},
-        "ב":   {"short": "Jewish Home", "bloc": "X", "family": "right_alt"}
+        "מחל": {
+          "short": "Likud",
+          "bloc": "N",
+          "family": "likud",
+          "short_he": "הליכוד"
+        },
+        "פה": {
+          "short": "Yesh Atid",
+          "bloc": "O",
+          "family": "lapid",
+          "short_he": "יש עתיד"
+        },
+        "ט": {
+          "short": "Religious Zionism",
+          "bloc": "N",
+          "family": "far_right",
+          "short_he": "הציונות הדתית"
+        },
+        "כן": {
+          "short": "National Unity",
+          "bloc": "O",
+          "family": "gantz",
+          "short_he": "המחנה הממלכתי"
+        },
+        "שס": {
+          "short": "Shas",
+          "bloc": "N",
+          "family": "shas",
+          "short_he": "ש\"ס"
+        },
+        "ג": {
+          "short": "United Torah Judaism",
+          "bloc": "N",
+          "family": "utj",
+          "short_he": "יהדות התורה"
+        },
+        "ל": {
+          "short": "Yisrael Beitenu",
+          "bloc": "O",
+          "family": "yb",
+          "short_he": "ישראל ביתנו"
+        },
+        "עם": {
+          "short": "Ra'am",
+          "bloc": "A",
+          "family": "raam",
+          "short_he": "רע\"ם"
+        },
+        "ום": {
+          "short": "Hadash-Ta'al",
+          "bloc": "A",
+          "family": "joint",
+          "short_he": "חד\"ש-תע\"ל"
+        },
+        "אמת": {
+          "short": "Labor",
+          "bloc": "O",
+          "family": "left",
+          "short_he": "העבודה"
+        },
+        "מרצ": {
+          "short": "Meretz",
+          "bloc": "O",
+          "family": "left",
+          "short_he": "מרצ"
+        },
+        "ד": {
+          "short": "Balad",
+          "bloc": "A",
+          "family": "joint",
+          "short_he": "בל\"ד"
+        },
+        "ב": {
+          "short": "Jewish Home",
+          "bloc": "X",
+          "family": "right_alt",
+          "short_he": "הבית היהודי"
+        }
       },
       "agreements": []
     }
   },
-
   "sectors": {
     "_comment": "Localities are classified from the BASELINE result. Overrides by locality code win.",
     "arab_min_share": 0.5,

@@ -20,6 +20,7 @@ Key ideas
 
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Optional
@@ -36,6 +37,18 @@ SECTOR_NAMES = {
     "new": "New localities (no baseline)",
 }
 SHRINK_VOTES = 5000.0  # sector swing is blended with national swing until a sector has this many votes
+
+
+SECTOR_HE = {
+    "arab": "יישובים ערביים ובדואיים", "haredi": "יישובים חרדיים", "large": "ערים גדולות",
+    "jewish": "יישובים יהודיים אחרים", "envelopes": "מעטפות חיצוניות", "new": "יישובים חדשים",
+}
+
+
+def short_he(name: str) -> str:
+    """Short Hebrew label from the official list name (text before 'בראשות' / 'בהנהגת' ...)."""
+    s = re.split(r"\s+(?:בראשות|בהנהגת|בהובלת|תנועתו של|-|–)\s+", name, maxsplit=1)[0].strip()
+    return s if len(s) <= 26 else s[:24].rstrip() + "…"
 
 
 def _pct(a: float, b: float) -> Optional[float]:
@@ -65,17 +78,24 @@ class Profile:
     def party(self, letter: str) -> dict:
         if letter in self._cache:
             return self._cache[letter]
-        he = self.names.get(letter) or letter
+        own = self.names.get(letter)
+        base_he = self.inherit.names.get(letter) if self.inherit is not None else None
+        he = own or base_he or letter
         p = self.cfg.get("parties", {}).get(letter)
         if p:
-            out = {"letter": letter, "he": he, "name": p.get("short") or he, "bloc": p["bloc"], "family": p["family"]}
+            out = {"letter": letter, "he": he, "name": p.get("short") or he, "short_he": p.get("short_he") or short_he(he),
+                   "bloc": p["bloc"], "family": p["family"]}
         elif (self.inherit is not None and self.cfg.get("inherit_by_letter")
               and letter in self.inherit.cfg.get("parties", {})):
             q = self.inherit.cfg["parties"][letter]
-            out = {"letter": letter, "he": he, "name": he if he != letter else f"List {letter}",
+            same_list = not own or own == base_he
+            out = {"letter": letter, "he": he,
+                   "name": (q.get("short") if same_list else None) or (he if he != letter else f"List {letter}"),
+                   "short_he": (q.get("short_he") if same_list else None) or (short_he(he) if he != letter else f"רשימה {letter}"),
                    "bloc": q["bloc"], "family": q["family"], "assumed": True}
         else:
             out = {"letter": letter, "he": he, "name": he if he != letter else f"List {letter}",
+                   "short_he": short_he(he) if he != letter else f"רשימה {letter}",
                    "bloc": "X", "family": "other", "unclassified": True}
         self._cache[letter] = out
         return out
@@ -136,9 +156,11 @@ class Analyzer:
                 self.cur.set_names(self.base.names)
         # ballot boxes per locality in the baseline (from expb.csv) -> per-locality counting progress
         self.base_ballots: dict[int, int] = {}
+        self.base_ballot_rows: dict[tuple, Row] = {}
         if baseline_ballots is not None:
             for r in baseline_ballots.rows:
                 self.base_ballots[r.code] = self.base_ballots.get(r.code, 0) + 1
+                self.base_ballot_rows[(r.code, r.ballot)] = r
         self.growth = float(cfg.get("eligible_growth", 1.0))
         self.threshold = float(cfg.get("threshold", 0.0325))
         self.seats = int(cfg.get("seats", 120))
@@ -269,7 +291,7 @@ class Analyzer:
             pct = _pct(v, valid)
             proj = projection["letters"].get(l) if projection else None
             parties.append({
-                "letter": l, "name": p["name"], "he": p.get("he", l), "leader": p.get("leader", ""),
+                "letter": l, "name": p["name"], "he": p.get("he", l), "short_he": p.get("short_he", l),
                 "bloc": p["bloc"], "family": fam, "minor": not pct or pct < 0.01,
                 "assumed": bool(p.get("assumed")), "unclassified": bool(p.get("unclassified")),
                 "votes": v, "pct": _r(pct, 5),
@@ -628,6 +650,7 @@ class Analyzer:
         fams.sort(key=lambda x: -(x["pct"] or x["base_pct"] or 0))
         return {
             "code": code, "name": (c or b).name, "sector": SECTOR_NAMES[self._sector_of(code)],
+            "sector_key": self._sector_of(code), "base_ballots": self.base_ballots.get(code),
             "now": c and {"eligible": c.eligible, "voters": c.voters, "invalid": c.invalid, "valid": c.valid,
                           "letters": [{**self.cur.party(l), "votes": v, "pct": _r(c.share(c.letters, l))}
                                       for l, v in sorted(c.letters.items(), key=lambda kv: -kv[1])]},
@@ -638,95 +661,196 @@ class Analyzer:
             "families": fams,
         }
 
+    # ------------------------------------------------------------------ drill-downs
+    def _ballot_summary(self, r: Row, prof: Profile) -> dict:
+        letters = {k: v for k, v in r.votes.items() if v}
+        top = sorted(letters, key=letters.get, reverse=True)
+        blocs: dict = {}
+        for l, v in letters.items():
+            blocs[prof.bloc(l)] = blocs.get(prof.bloc(l), 0) + v
+        return {"ballot": r.ballot, "eligible": r.eligible, "voters": r.voters, "invalid": r.invalid, "valid": r.valid,
+                "turnout": _r(_pct(r.voters, r.eligible)),
+                "winner": top[0] if top else None, "winner_pct": _r(_pct(letters[top[0]], r.valid)) if top else None,
+                "top": [[l, _r(_pct(letters[l], r.valid))] for l in top[:3]],
+                "blocs": {k: _r(_pct(v, r.valid)) for k, v in blocs.items()}}
+
+    def city_ballots(self, ballots: Optional[ResultFile], code: int) -> dict:
+        """Every ballot box of a locality, now and (same ballot number) in the baseline."""
+        now = {r.ballot: r for r in (ballots.rows if ballots else []) if r.code == code}
+        base = {k[1]: r for k, r in self.base_ballot_rows.items() if k[0] == code}
+
+        def key(b):
+            try:
+                return (0, float(b))
+            except (TypeError, ValueError):
+                return (1, str(b))
+
+        out = []
+        for b in sorted(set(now) | set(base), key=key):
+            row = {"ballot": b}
+            if b in now and (now[b].voters or now[b].valid):
+                row["now"] = self._ballot_summary(now[b], self.cur)
+            if b in base:
+                row["base"] = self._ballot_summary(base[b], self.base)
+            out.append(row)
+        return {"code": code, "ballots": out, "counted": sum(1 for r in out if "now" in r),
+                "base_total": len(base), "has_feed": ballots is not None}
+
+    def ballot_detail(self, ballots: Optional[ResultFile], code: int, ballot: str) -> Optional[dict]:
+        r = next((r for r in (ballots.rows if ballots else []) if r.code == code and r.ballot == ballot), None)
+        b = self.base_ballot_rows.get((code, ballot))
+        if not r and not b:
+            return None
+
+        def lst(row, prof):
+            return [{**prof.party(l), "votes": v, "pct": _r(_pct(v, row.valid))}
+                    for l, v in sorted(row.votes.items(), key=lambda kv: -kv[1]) if v]
+        return {"code": code, "ballot": ballot, "name": (r or b).name,
+                "now": r and {**self._ballot_summary(r, self.cur), "letters": lst(r, self.cur)},
+                "base": b and {**self._ballot_summary(b, self.base), "letters": lst(b, self.base)}}
+
+    def party_detail(self, current: Optional[ResultFile], letter: str) -> Optional[dict]:
+        if current is None:
+            return None
+        p = self.cur.party(letter)
+        fam = p["family"]
+        cities = []
+        tot_v = tot_valid = 0
+        by_sector: dict = {}
+        for code, row in current.by_city().items():
+            if not row.valid:
+                continue
+            v = row.votes.get(letter, 0)
+            tot_v += v
+            tot_valid += row.valid
+            b = self.base_cities.get(code)
+            base_fam = b.share(b.fam, fam) if (b and fam != "other") else None
+            now_fam = sum(x for l, x in row.votes.items() if self.cur.family(l) == fam) / row.valid
+            sec = self._sector_of(code)
+            a = by_sector.setdefault(sec, {"key": sec, "votes": 0, "valid": 0, "lfl": 0.0})
+            a["votes"] += v
+            a["valid"] += row.valid
+            if base_fam is not None:
+                a["lfl"] += row.valid * base_fam
+            cities.append({"code": code, "name": row.name, "sector": sec, "valid": row.valid, "votes": v,
+                           "pct": _r(v / row.valid), "family_pct": _r(now_fam),
+                           "base_family_pct": _r(base_fam),
+                           "delta": _r(now_fam - base_fam) if base_fam is not None else None})
+        hist = [0] * 20
+        for c in cities:
+            if c["code"] != ENVELOPES_CODE and c["valid"] >= 200:
+                hist[min(19, int((c["pct"] or 0) * 20))] += 1
+        big = [c for c in cities if c["valid"] >= 2000]
+        return {
+            **p, "votes": tot_v, "pct": _r(_pct(tot_v, tot_valid), 5),
+            "family_name": self.cfg["families"].get(fam, {}).get("he") or self.cfg["families"].get(fam, {}).get("name"),
+            "sectors": [{"key": k, "name": SECTOR_HE.get(k, k), "votes": a["votes"], "pct": _r(_pct(a["votes"], a["valid"])),
+                         "share_of_party": _r(_pct(a["votes"], tot_v)),
+                         "lfl_family_pct": _r(a["lfl"] / a["valid"]) if a["valid"] and fam != "other" else None}
+                        for k, a in sorted(by_sector.items(), key=lambda kv: -kv[1]["votes"])],
+            "strongest": sorted(big, key=lambda c: -(c["pct"] or 0))[:25],
+            "most_votes": sorted(cities, key=lambda c: -c["votes"])[:25],
+            "gains": sorted([c for c in big if c["delta"] is not None], key=lambda c: -c["delta"])[:15],
+            "losses": sorted([c for c in big if c["delta"] is not None], key=lambda c: c["delta"])[:15],
+            "histogram": hist,
+            "cities": len(cities),
+        }
+
+    def search(self, current: Optional[ResultFile], q: str) -> list:
+        q = q.strip()
+        if not q:
+            return []
+        out = []
+        for code, c in self.base_cities.items():
+            if q in c.name or q == str(code):
+                out.append({"type": "city", "code": code, "name": c.name, "eligible": c.eligible})
+        out.sort(key=lambda x: (not x["name"].startswith(q), -x["eligible"]))
+        letters = set(self.cur.cfg.get("parties", {})) | set(self.cur.names) | set(current.parties if current else [])
+        parties = [{"type": "party", "letter": l, "name": self.cur.party(l)["short_he"], "he": self.cur.party(l)["he"]}
+                   for l in letters if q in l or q in self.cur.party(l)["he"] or q.lower() in self.cur.party(l)["name"].lower()]
+        return parties[:8] + out[:20]
+
     # ------------------------------------------------------------------ insights
     def _insights(self, st: dict) -> list:
         ins = []
         pg, nat = st["progress"], st["national"]
-        fam_name = {k: v["name"] for k, v in self.cfg["families"].items()}
-
-        def iso(t):  # isolate Hebrew names so they don't scramble English sentences
-            return f"\u2068{t}\u2069"
+        fam_he = {k: v.get("he") or v["name"] for k, v in self.cfg["families"].items()}
+        bloc_he = {k: v.get("he") or v["name"] for k, v in self.cfg["blocs"].items()}
 
         def add(kind, level, text):
             ins.append({"kind": kind, "level": level, "text": text})
 
+        def pp(x):
+            return f"{x*100:+.1f}"
+
         if not nat["valid"]:
-            add("status", "info", "No results published yet. The monitor keeps polling the configured sources.")
+            add("status", "info", "טרם פורסמו תוצאות. המערכת ממשיכה לבדוק את האתר.")
             return ins
         frac = pg.get("fraction") or 0
         add("status", "info",
-            f"Counting progress ≈ {frac*100:.1f}% ({pg['method']}); {pg['localities_reporting']} of "
-            f"{pg['localities_total']} localities reporting; double envelopes "
-            f"{'counted' if pg['envelopes_counted'] else 'not yet counted'}.")
+            f"נספרו כ-{frac*100:.1f}% מהקולות; {pg['localities_reporting']:,} מתוך {pg['localities_total']:,} יישובים דיווחו; "
+            f"מעטפות חיצוניות {'נספרו' if pg['envelopes_counted'] else 'טרם נספרו'}.")
         if nat.get("turnout_lfl_delta") is not None:
-            d = nat["turnout_lfl_delta"] * 100
-            add("turnout", "up" if d >= 0.1 else "down" if d <= -0.1 else "info",
-                f"Turnout in reporting localities is {nat['turnout_lfl']*100:.1f}% vs {nat['turnout_lfl_base']*100:.1f}% "
-                f"in the same localities last time ({d:+.1f} pp).")
+            d = nat["turnout_lfl_delta"]
+            add("turnout", "up" if d >= 0.001 else "down" if d <= -0.001 else "info",
+                f"שיעור ההצבעה ביישובים שדיווחו: {nat['turnout_lfl']*100:.1f}% לעומת {nat['turnout_lfl_base']*100:.1f}% "
+                f"באותם יישובים בבחירות הקודמות ({pp(d)} נק׳ אחוז).")
         for s in st["sectors"]:
-            if s.get("turnout_delta") is not None and s["now_valid"] > 2000:
-                d = s["turnout_delta"] * 100
-                if abs(d) >= 2:
-                    add("sector", "up" if d > 0 else "down",
-                        f"{s['name']}: turnout {s['turnout']*100:.1f}% vs {s['turnout_base']*100:.1f}% ({d:+.1f} pp), "
-                        f"{s['reporting']}/{s['localities']} localities in.")
-        # blocs
+            if s.get("turnout_delta") is not None and s["now_valid"] > 2000 and abs(s["turnout_delta"]) >= 0.02:
+                d = s["turnout_delta"]
+                add("sector", "up" if d > 0 else "down",
+                    f"{SECTOR_HE.get(s['key'], s['name'])}: הצבעה {s['turnout']*100:.1f}% לעומת {s['turnout_base']*100:.1f}% "
+                    f"({pp(d)} נק׳), {s['reporting']}/{s['localities']} יישובים.")
         bl = {b["key"]: b for b in st["blocs"]}
         n = bl.get("N")
         if n:
             ps = n.get("proj_seats")
-            add("seats", "key",
-                f"{n['name']}: {n['seats']} seats on counted votes"
-                + (f", {ps} projected" if ps is not None else "")
-                + f" (baseline {n['base_seats']}; majority = {self.majority}).")
+            add("seats", "key", f"{bloc_he['N']}: {n['seats']} מנדטים לפי הקולות שנספרו"
+                + (f", {ps} בתחזית" if ps is not None else "")
+                + f" (בבחירות הקודמות {n['base_seats']}; רוב = {self.majority}).")
         for b in st["blocs"]:
             if b.get("swing") is not None and abs(b["swing"]) >= 0.01:
                 add("swing", "up" if b["swing"] > 0 else "down",
-                    f"{b['name']} {b['swing']*100:+.1f} pp vs the same localities in the baseline "
-                    f"({b['pct']*100:.1f}% now).")
+                    f"{bloc_he[b['key']]} {pp(b['swing'])} נק׳ לעומת אותם יישובים בבחירות הקודמות ({b['pct']*100:.1f}% כעת).")
         fams = [f for f in st["families"] if f.get("swing") is not None]
         if fams and max(abs(f["swing"]) for f in fams) >= 0.001:
             g = max(fams, key=lambda f: f["swing"])
             l = min(fams, key=lambda f: f["swing"])
-            add("swing", "up", f"Biggest gainer: {g['name']} {g['swing']*100:+.1f} pp like-for-like.")
-            add("swing", "down", f"Biggest loser: {l['name']} {l['swing']*100:+.1f} pp like-for-like.")
-        # threshold
+            add("swing", "up", f"המתחזקת ביותר: {fam_he.get(g['key'])} {pp(g['swing'])} נק׳ בהשוואה זהה.")
+            add("swing", "down", f"הנחלשת ביותר: {fam_he.get(l['key'])} {pp(l['swing'])} נק׳ בהשוואה זהה.")
         for p in st["parties"]:
-            if p["pct"] is None:
+            if p["pct"] is None or not 0.025 <= p["pct"] <= 0.04:
                 continue
-            if 0.025 <= p["pct"] <= 0.04:
-                if p["passes"]:
-                    add("threshold", "warn", f"{p['name']} ({iso(p['letter'])}) is just above the threshold: {p['pct']*100:.2f}%.")
-                else:
-                    add("threshold", "warn", f"{p['name']} ({iso(p['letter'])}) is below the threshold at {p['pct']*100:.2f}%, "
-                                             f"{p['to_threshold']:,} votes short.")
+            if p["passes"]:
+                add("threshold", "warn", f"{p['short_he']} ({p['letter']}) מעל אחוז החסימה בפער קטן: {p['pct']*100:.2f}%.")
+            else:
+                add("threshold", "warn", f"{p['short_he']} ({p['letter']}) מתחת לאחוז החסימה: {p['pct']*100:.2f}%, "
+                                         f"חסרים {p['to_threshold']:,} קולות.")
         if st["agreements"]["void"]:
-            add("seats", "info", "Surplus agreements void (a partner below threshold): "
-                + ", ".join(iso("–".join(p)) for p in st["agreements"]["void"]))
-        # cities
+            add("seats", "info", "הסכמי עודפים שבוטלו (שותפה מתחת לחסימה): "
+                + ", ".join("–".join(p) for p in st["agreements"]["void"]))
         solid = [c for c in st["cities"] if c.get("valid") and (c.get("base_eligible") or 0) >= 5000
                  and c.get("reporting", 0) >= 0.8 and c["sector"] != "envelopes"]
         tc = [c for c in solid if c.get("turnout_delta") is not None]
         up = sorted((c for c in tc if c["turnout_delta"] >= 0.005), key=lambda c: -c["turnout_delta"])[:5]
         dn = sorted((c for c in tc if c["turnout_delta"] <= -0.005), key=lambda c: c["turnout_delta"])[:5]
         if up:
-            add("cities", "up", "Largest turnout rises: " + ", ".join(f"{iso(c['name'])} {c['turnout_delta']*100:+.1f}pp" for c in up))
+            add("cities", "up", "העלייה הגדולה בהצבעה: " + ", ".join(f"{c['name']} {pp(c['turnout_delta'])}" for c in up))
         if dn:
-            add("cities", "down", "Largest turnout drops: " + ", ".join(f"{iso(c['name'])} {c['turnout_delta']*100:+.1f}pp" for c in dn))
+            add("cities", "down", "הירידה הגדולה בהצבעה: " + ", ".join(f"{c['name']} {pp(c['turnout_delta'])}" for c in dn))
         flips = [c for c in solid if c.get("flipped")]
         if flips:
-            add("cities", "key", f"{len(flips)} larger localities changed their leading camp, e.g. " + ", ".join(
-                f"{iso(c['name'])} ({fam_name.get(c['base_winner_family'], c['base_winner_family'])} → "
-                f"{fam_name.get(c['winner_family'], c['winner_family'])})" for c in flips[:6]))
+            add("cities", "key", f"{len(flips)} יישובים גדולים החליפו את המפלגה המובילה, למשל: " + ", ".join(
+                f"{c['name']} ({fam_he.get(c['base_winner_family'])} ← {fam_he.get(c['winner_family'])})" for c in flips[:6]))
         sw = [c for c in solid if c.get("bloc_swing") and max(abs(v or 0) for v in c["bloc_swing"].values()) >= 0.01]
         if sw:
             big = sorted(sw, key=lambda c: -max(abs(v or 0) for v in c["bloc_swing"].values()))[:5]
-            add("cities", "info", "Biggest bloc swings: " + ", ".join(
-                f"{iso(c['name'])} ({max(c['bloc_swing'].items(), key=lambda kv: abs(kv[1] or 0))[0]} "
-                f"{max(c['bloc_swing'].values(), key=lambda v: abs(v or 0))*100:+.1f}pp)" for c in big))
+            add("cities", "info", "התזוזות הגדולות בין גושים: " + ", ".join(
+                f"{c['name']} ({bloc_he[max(c['bloc_swing'].items(), key=lambda kv: abs(kv[1] or 0))[0]]} "
+                f"{pp(max(c['bloc_swing'].values(), key=lambda v: abs(v or 0)))})" for c in big))
         if nat.get("invalid_pct") is not None:
             bi = st["baseline_national"]["invalid_pct"]
-            add("turnout", "info", f"Invalid ballots: {nat['invalid_pct']*100:.2f}% of voters (baseline {bi*100:.2f}%).")
+            add("turnout", "info", f"קולות פסולים: {nat['invalid_pct']*100:.2f}% מהמצביעים (בבחירות הקודמות {bi*100:.2f}%).")
         return ins
 
     def _changes(self, st: dict, prev: Optional[dict]) -> dict:
@@ -749,6 +873,7 @@ class Analyzer:
             "votes_added": st["national"]["valid"] - prev.get("national", {}).get("valid", 0),
             "new_localities": [c["name"] for c in sorted(new, key=lambda c: -(c.get("valid") or 0))[:15]],
             "new_localities_count": len(new),
+            "new_codes": [c["code"] for c in new][:300],
             "updated_localities_count": len(grew),
             "party_moves": moves[:8],
         }

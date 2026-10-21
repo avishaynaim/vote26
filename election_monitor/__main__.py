@@ -2,7 +2,7 @@
 
     python -m election_monitor serve                     # monitor the configured site (votes25 by default)
     python -m election_monitor --site URL serve          # monitor another site (e.g. the new one)
-    python -m election_monitor --current 25 serve --simulate   # rehearsal: replay the 2022 count
+    python -m election_monitor serve --simulate          # mock live election, speed controls in the dashboard
     python -m election_monitor sync --election 25        # download a results site's files
     python -m election_monitor report --file expc.csv    # one-off text report
     python -m election_monitor probe                     # check which feed URLs answer
@@ -28,33 +28,26 @@ def load_config(path: str) -> dict:
 def cmd_serve(a, cfg):
     sources = None
     if a.simulate:
-        from .simulate import Replay
-        bdir = cfg["elections"][a.current].get("baseline_dir")
-        final = a.replay_file or (bdir and os.path.join(_abs(bdir), "expb.csv"))
-        if not final or not os.path.exists(final):
-            sys.exit("simulation needs a final expb.csv: use --current with an election that has baseline data, "
-                     "or --replay-file")
+        from .simulate import LiveSim
         out = os.path.join(ROOT, "data", "sim", "feed")
-        for fn in ("expc.csv", "expb.csv"):
-            if os.path.exists(os.path.join(out, fn)):
-                os.remove(os.path.join(out, fn))
-        Replay(final, out, steps=a.sim_steps, step_seconds=a.sim_step_seconds).start()
         sources = {"expc": [os.path.join(out, "expc.csv")], "expb": [os.path.join(out, "expb.csv")],
                    "discover_pages": []}
+        cfg["poll_seconds"] = 1
         cfg["expb_every"] = 1
-        cfg["poll_seconds"] = min(cfg.get("poll_seconds", 30), a.sim_step_seconds)
         a.data_dir = os.path.join("data", "sim")
-        # wipe old rehearsal history so each simulation starts clean
-        sim_dir = _abs(a.data_dir)
-        for root, _, files in os.walk(sim_dir):
-            for fn in files:
-                if fn.endswith(".jsonl") or (fn.endswith("_expc.csv") and "snapshots" in root):
-                    os.remove(os.path.join(root, fn))
     elif a.file:
         sources = {"expc": [os.path.abspath(a.file)], "expb": [], "discover_pages": []}
     if a.poll:
         cfg["poll_seconds"] = a.poll
     mon = Monitor(cfg, a.current, a.baseline, sources=sources, data_dir=a.data_dir)
+    if a.simulate:
+        bdir = _abs(cfg["elections"][a.baseline]["baseline_dir"])
+        mon.reset_state()
+        an = mon.analyzer
+        mon.sim = LiveSim(os.path.join(bdir, "expb.csv"), out, an.base.family, an._sector_of,
+                          days=a.days, speed=a.speed)
+        mon.sim.start()
+        mon.log(f"simulation: mock results over {a.days:g} days at x{a.speed} (change speed in the dashboard)")
     serve(mon, a.host, a.port)
 
 
@@ -157,10 +150,10 @@ def main(argv=None):
     s.add_argument("--poll", type=float, help="seconds between polls")
     s.add_argument("--file", help="watch a local expc.csv instead of the configured URLs")
     s.add_argument("--data-dir", default="data")
-    s.add_argument("--simulate", action="store_true", help="replay a final file live (rehearsal)")
-    s.add_argument("--replay-file", help="final expb.csv to replay (default: the current election's baseline expb.csv)")
-    s.add_argument("--sim-steps", type=int, default=40)
-    s.add_argument("--sim-step-seconds", type=float, default=5.0)
+    s.add_argument("--simulate", action="store_true",
+                   help="mock live election: 2022 results with random changes, arriving over --days simulated days")
+    s.add_argument("--days", type=float, default=5.0)
+    s.add_argument("--speed", type=int, default=100, choices=[1, 2, 5, 10, 30, 50, 100, 1000])
     r = sub.add_parser("report", help="print a one-off analysis")
     r.add_argument("--file", help="expc.csv to analyse (default: fetch from the configured URLs)")
     r.add_argument("--json", action="store_true")
