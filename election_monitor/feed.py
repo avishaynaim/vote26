@@ -90,9 +90,14 @@ class ResultFile:
     parties: list[str]
     rows: list[Row]
     encoding: str = ""
+    _by_city_cache: Optional[dict[int, Row]] = field(default=None, repr=False, compare=False)
 
     def by_city(self) -> dict[int, Row]:
-        """Aggregate rows per locality code (identity for expc, sums ballots for expb)."""
+        """Aggregate rows per locality code (identity for expc, sums ballots for expb).
+        Cached: analyze() + party_detail() both call this on every request.
+        ResultFile is treated as immutable once parsed — mutating .rows invalidates the cache."""
+        if self._by_city_cache is not None:
+            return self._by_city_cache
         out: dict[int, Row] = {}
         for r in self.rows:
             c = out.get(r.code)
@@ -106,6 +111,7 @@ class ResultFile:
                 c.valid += r.valid
                 for k, v in r.votes.items():
                     c.votes[k] = c.votes.get(k, 0) + v
+        self._by_city_cache = out
         return out
 
 

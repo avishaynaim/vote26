@@ -504,7 +504,7 @@
     const gauss = (m, s) => { let x = 0, y = 0; while (!x) x = u(); while (!y) y = u(); return m + s * Math.sqrt(-2 * Math.log(x)) * Math.cos(2 * Math.PI * y); };
     return { u, uniform: (a, b) => a + (b - a) * u(), gauss, logn: (m, s) => Math.exp(gauss(m, s)) }; }
   class LiveSim {
-    constructor(src, parties, family, sectorOf, days = 5, speed = 100, seed = 26) {
+    constructor(src, parties, family, sectorOf, days = 5, speed = 1000, seed = 26) {
       this.parties = parties; this.duration = days * 86400; this.speed = speed;
       const R = rng(seed), noise = new Map(), size = {};
       for (const x of src) add(size, x.code, x.eligible);
@@ -566,7 +566,7 @@
     M.cfg = cfg;
     M.an = new Analyzer(cfg, base.rows, cfg.current, cfg.baseline, national);
     M.parties = base.parties;
-    M.sim = new LiveSim(base.rows, base.parties, l => M.an.base.family(l), c => M.an.sectorOf(c), 5, 100);
+    M.sim = new LiveSim(base.rows, base.parties, l => M.an.base.family(l), c => M.an.sectorOf(c), 5, 1000);
     M.status = { started: nowIso(), polls: 0, changes: 0, last_poll: null, last_change: null, last_error: null, expc_url: "סימולציה בדפדפן (נתוני דמה)",
       expb_url: "סימולציה בדפדפן (נתוני דמה)", poll_seconds: 1, candidates: { expc: [], expb: [] }, site: cfg.elections[cfg.current].site, site_status: null, site_totals: null, site_error: null };
     tick(); setInterval(tick, 1000);

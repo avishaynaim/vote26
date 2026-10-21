@@ -135,8 +135,8 @@ class TestLiveSim(unittest.TestCase):
         try:
             sim = LiveSim(os.path.join(K25, "expb.csv"), tmp, an.base.family, an._sector_of, days=5, speed=1000)
             self.assertEqual(sim.status()["ballots_reported"], 0)
-            self.assertEqual(sim.control(speed=30)["speed"], 30)
-            self.assertEqual(sim.control(speed=7)["speed"], 30)  # unknown speed ignored
+            self.assertEqual(sim.control(speed=2000)["speed"], 2000)
+            self.assertEqual(sim.control(speed=7)["speed"], 2000)  # unknown speed ignored
             self.assertFalse(sim.control(action="pause")["running"])
             sim.sim_seconds = sim.duration / 2
             sim._advance()
@@ -154,6 +154,31 @@ class TestLiveSim(unittest.TestCase):
             self.assertEqual(sim.control(action="reset")["ballots_reported"], 0)
         finally:
             shutil.rmtree(tmp)
+
+
+class TestModeSwitch(unittest.TestCase):
+    def test_set_mode_cycles_cleanly(self):
+        from election_monitor.server import Monitor
+        tmp = tempfile.mkdtemp()
+        try:
+            mon = Monitor(CFG, "live", "25", data_dir=tmp, log=lambda *a: None)
+            # baseline: serves the 2022 final CSV as-current
+            mon.set_mode("baseline")
+            self.assertEqual(mon.mode, "baseline")
+            self.assertIsNone(mon.sim)
+            # simulate: starts a LiveSim thread and uses --data-dir, not ROOT/data/sim
+            mon.set_mode("simulate", speed=1000)
+            self.assertEqual(mon.mode, "simulate")
+            self.assertIsNotNone(mon.sim)
+            self.assertTrue(mon.expc.candidates[0].startswith(os.path.join(tmp, "sim", "feed")))
+            # live: stops sim cleanly, resets site+candidates
+            mon.set_mode("live")
+            self.assertEqual(mon.mode, "live")
+            self.assertIsNone(mon.sim)
+            self.assertEqual(mon.cfg["poll_seconds"], CFG.get("live_poll_seconds", 30))
+            mon.stop()
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":

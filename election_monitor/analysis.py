@@ -171,9 +171,14 @@ class Analyzer:
         self.base_letters = self._sum_dicts(c.letters for c in self.base_cities.values())
         self.base_fam = self._sum_dicts(c.fam for c in self.base_cities.values())
         self.base_bloc = self._sum_dicts(c.bloc for c in self.base_cities.values())
-        official = {l["letter"]: l["seats"] for l in (baseline_national or {}).get("lists", []) if l.get("seats") is not None}
-        if official and sum(official.values()) == self.seats:
-            self.base_seats, self.base_seats_source = official, "official (results site)"
+        # Use official seats from the results site when they sum to exactly `self.seats`
+        # (so we match the Knesset's own numbers, incl. surplus agreements we don't know).
+        # Any missing/non-int seat count disqualifies the official set.
+        official = [l for l in (baseline_national or {}).get("lists", []) if isinstance(l.get("seats"), int)]
+        official_sum = sum(l["seats"] for l in official) if official else 0
+        if official and official_sum == self.seats:
+            self.base_seats = {l["letter"]: l["seats"] for l in official}
+            self.base_seats_source = "official (results site)"
         else:
             self.base_seats = bader_ofer(self.base_letters, self.base.cfg.get("agreements"), self.seats, self.threshold)["seats"]
             self.base_seats_source = "computed"
@@ -462,6 +467,11 @@ class Analyzer:
                 a["fam_lfl"][k] = a["fam_lfl"].get(k, 0) + c.valid * v / b.valid
         out = []
         order = ["arab", "haredi", "large", "jewish", "envelopes", "new"]
+        # Preserve custom override sectors (from config.sectors.overrides) by appending any
+        # unknown keys at the end — otherwise aggregation includes them but output drops them.
+        for s in list(agg.keys()):
+            if s not in order:
+                order.append(s)
         for s in order:
             if s not in agg:
                 continue
@@ -498,9 +508,18 @@ class Analyzer:
             ft = fam_now_tot.get(f, 0)
             return letters[l] / ft if ft else 1.0 / len(fam_letters[f])
 
-        # "other" family is not comparable letter by letter -> spread by current split as well
+        # "other" family is not comparable letter by letter -> spread by current split as well.
+        # Memoize per baseline city — the result only depends on `b` and the current letter set,
+        # and this is called twice per locality inside the main projection loop.
+        _base_est_cache: dict = {}
+
         def base_est(b: CityAgg) -> dict:
-            return {l: b.share(b.fam, self.cur.family(l)) * split(l) for l in cur_letters}
+            cached = _base_est_cache.get(b.code)
+            if cached is not None:
+                return cached
+            out = {l: b.share(b.fam, self.cur.family(l)) * split(l) for l in cur_letters}
+            _base_est_cache[b.code] = out
+            return out
 
         # sector-level swing per letter and turnout factor (shrunk toward national)
         nat_now: dict = {}

@@ -34,7 +34,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 syst
 .card, .scroll { overscroll-behavior-x: contain; }
 a { color: inherit; }
 header { position: relative; background: var(--surface); border-bottom: 1px solid var(--border); }
-header nav#tabs { position: sticky; top: 0; z-index: 10; background: var(--surface); padding-top: 4px; border-bottom: 1px solid var(--border); }
+header nav#tabs { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: saturate(1.4) blur(10px); -webkit-backdrop-filter: saturate(1.4) blur(10px); padding-top: 4px; border-bottom: 1px solid var(--border); }
 .hwrap { max-width: 1440px; margin: 0 auto; padding: 10px 16px 0; }
 .hrow { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
 .brand { display: flex; align-items: center; gap: 10px; }
@@ -195,14 +195,20 @@ svg.hemicycle text { transition: fill .4s var(--ease); }
 /* FLIP: elements that reorder (party rows, bloc cards, city rows) animate smoothly between positions */
 [data-flip] { will-change: transform; }
 tr[data-flip] { position: relative; }    /* z-index needs a positioned element */
-.flip-moving { background: color-mix(in srgb, var(--accent) 14%, transparent) !important; z-index: 2; }
+/* Fallback tints for browsers without color-mix (Safari <16.2). Each --accent-* resolves to
+   either a color-mix or a flat approximation, so the UI still has highlighting. */
+:root { --accent-14: rgba(42, 120, 214, 0.14); --accent-18: rgba(42, 120, 214, 0.18); --accent-42: rgba(42, 120, 214, 0.42); --surface-nav: var(--surface); }
+@supports (background: color-mix(in srgb, red, blue)) {
+  :root { --accent-14: color-mix(in srgb, var(--accent) 14%, transparent); --accent-18: color-mix(in srgb, var(--accent) 18%, transparent); --accent-42: color-mix(in srgb, var(--accent) 42%, transparent); }
+}
+.flip-moving { background: var(--accent-14); z-index: 2; }
 tr.flip-moving td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 
 /* Per-cell flash: only the specific <td> whose value changed gets focused */
 .cell-flash { animation: cellFlash .95s cubic-bezier(.22,1,.36,1); position: relative; }
 @keyframes cellFlash {
-  0%   { background: color-mix(in srgb, var(--accent) 42%, transparent); color: var(--text); font-weight: 700; }
-  40%  { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+  0%   { background: var(--accent-42); color: var(--text); font-weight: 700; }
+  40%  { background: var(--accent-18); }
   100% { background: transparent; }
 }
 
@@ -483,9 +489,18 @@ const cellPrev = new Map();     // data-flip id → array of cell textContent sn
 const svgPrev = new Map();      // data-anim-key → previous cx/cy/r for SVG tween (scatter, threshold, …)
 window.__flipDbg = true;        // top-left badge for FLIP activity (set false in console to hide)
 function captureFlip(root) {
+  // On pages with ~1200 flip-tagged rows (cities table), measuring every row triggers
+  // 1200 synchronous layouts = visible jank on mobile. Only track elements intersecting
+  // the viewport (plus a small cushion) — off-screen row reorderings aren't visible anyway.
   flipPrev.clear();
   if (!root) return;
-  root.querySelectorAll("[data-flip]").forEach(el => flipPrev.set(el.dataset.flip, el.getBoundingClientRect()));
+  const vh = innerHeight, cushion = 400;
+  root.querySelectorAll("[data-flip]").forEach(el => {
+    const r = el.getBoundingClientRect();
+    if (r.bottom > -cushion && r.top < vh + cushion) {
+      flipPrev.set(el.dataset.flip, r);
+    }
+  });
 }
 function captureSvg(root) {
   svgPrev.clear();
@@ -582,14 +597,14 @@ function playFlip(root) {
 }
 function tweenKpis() {
   // Count up/down inside each .kpi .val for numeric changes, plus the pulse class on change.
+  // Each run tags the element with a token; if a newer run starts (e.g. next poll fires mid-tween),
+  // the old step() sees a mismatched token and aborts — prevents overwriting fresh textContent.
   $$(".kpi .val[data-key]").forEach(el => {
     const k = el.dataset.key, now = el.textContent.trim(), was = kpiPrev.get(k);
     kpiPrev.set(k, now);
     if (was == null || was === now) return;
     el.classList.remove("tick"); void el.offsetWidth; el.classList.add("tick");
     setTimeout(() => el.classList.remove("tick"), 650);
-    // skip count-up tween for KPIs whose value includes inline markup (e.g. "<b>31</b> מנדטים"),
-    // we'd clobber the structure if we rewrote textContent each frame
     if (el.children.length) return;
     const nMatch = now.match(/-?[\d,.]+/), wMatch = was.match(/-?[\d,.]+/);
     if (!nMatch || !wMatch) return;
@@ -598,8 +613,10 @@ function tweenKpis() {
     const i = now.indexOf(nMatch[0]), prefix = now.slice(0, i), suffix = now.slice(i + nMatch[0].length);
     const decIn = (nMatch[0].split(".")[1] || "").length;
     const isFloat = decIn > 0 || suffix.includes("%");
+    const token = (el.__tween = (el.__tween || 0) + 1);
     const dur = 650, t0 = performance.now();
     (function step(t) {
+      if (el.__tween !== token || !el.isConnected) return;  // newer tween supersedes us, bail
       const p = Math.min(1, (t - t0) / dur);
       const e = 1 - Math.pow(1 - p, 3);
       const v = wNum + (nNum - wNum) * e;
@@ -615,25 +632,37 @@ function renderInto(fn) {
   // paint the new DOM at its new positions for one frame before the inverse was applied, which
   // is exactly the visible jump the user kept seeing.
   const view = $("#view");
-  // Save scroll positions of any scrollable container inside #view so the next render
-  // doesn't yank the user back to the left edge after they've scrolled a wide table.
-  const scrolls = Array.from(view.querySelectorAll(".card, .scroll"))
-    .map(el => ({ l: el.scrollLeft, t: el.scrollTop }));
+  // Save scroll positions keyed by data-scroll or heading text so a conditional card
+  // that removes/adds a sibling doesn't shift the index mapping and spray scrolls onto
+  // the wrong containers.
+  const scrolls = new Map();
+  view.querySelectorAll(".card, .scroll").forEach((el, i) => {
+    if (!el.scrollLeft && !el.scrollTop) return;
+    const key = el.dataset.scroll || (el.querySelector("h2") || {}).textContent || ("idx-" + i);
+    scrolls.set(key, { l: el.scrollLeft, t: el.scrollTop });
+  });
   captureFlip(view);
   captureSvg(view);
   fn();
   playFlip(view);
   playSvgTween(view);
   pulseChangedCells(view);
-  const after = view.querySelectorAll(".card, .scroll");
-  scrolls.forEach((p, i) => { if (after[i] && (p.l || p.t)) { after[i].scrollLeft = p.l; after[i].scrollTop = p.t; } });
+  view.querySelectorAll(".card, .scroll").forEach((el, i) => {
+    const key = el.dataset.scroll || (el.querySelector("h2") || {}).textContent || ("idx-" + i);
+    const p = scrolls.get(key);
+    if (p) { el.scrollLeft = p.l; el.scrollTop = p.t; }
+  });
   requestAnimationFrame(tweenKpis);
 }
 function route(isUpdate) {
   const parts = (location.hash.replace(/^#\/?/, "") || "overview").split("/").map(decodeURIComponent);
   const name = routes[parts[0]] ? parts[0] : "overview";
   const tab = { party: "parties", city: "cities" }[name] || name;
-  $$("#tabs a").forEach(a => a.classList.toggle("on", a.dataset.tab === tab));
+  $$("#tabs a").forEach(a => {
+    const on = a.dataset.tab === tab;
+    a.classList.toggle("on", on);
+    if (on) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+  });
   if (!S && name !== "feed") {
     renderInto(() => { $("#view").innerHTML = `<div class="empty"><div style="font-size:44px">⏳</div><h2>ממתין לתוצאות…</h2><p>המערכת בודקת את אתר התוצאות כל ${STATUS ? STATUS.poll_seconds : "?"} שניות.</p>
       <p class="muted">${esc(STATUS && STATUS.last_error ? "הודעה אחרונה: " + STATUS.last_error : "")}</p><p>אם האתר חוסם גישה אוטומטית, הורידו ממנו את <b>expc.csv</b> והעלו אותו בכפתור <b>העלאת CSV</b>.</p></div>`; });
@@ -1087,7 +1116,7 @@ function lineChart(series, yMax, yFmt, refLine, refLabel) {
     if (!pts.length) return;
     g += `<polyline fill="none" stroke="${s.color}" stroke-width="2" points="${pts.map(([i, v]) => `${xs(i).toFixed(1)},${ys(v).toFixed(1)}`).join(" ")}"/>`;
     const [li, lv] = pts[pts.length - 1];
-    g += `<circle cx="${xs(li)}" cy="${ys(lv)}" r="4" fill="${s.color}" stroke="var(--surface)" stroke-width="2"/><text x="${xs(li) + 8}" y="${ys(lv) + 4}" style="direction:rtl;unicode-bidi:plaintext">${esc(s.label)} ${yFmt(lv)}</text>`;
+    g += `<circle data-anim-key="line-${esc(s.label)}" cx="${xs(li)}" cy="${ys(lv)}" r="4" fill="${s.color}" stroke="var(--surface)" stroke-width="2"/><text x="${xs(li) + 8}" y="${ys(lv) + 4}" style="direction:rtl;unicode-bidi:plaintext">${esc(s.label)} ${yFmt(lv)}</text>`;
   });
   const step = Math.max(1, Math.floor(H.length / 150));
   for (let i = 0; i < H.length; i += step) { const h = H[i]; g += `<rect x="${xs(i) - (W / H.length * step) / 2}" y="${m.t}" width="${W / H.length * step}" height="${Ht - m.t - m.b}" fill="transparent" data-tip="${esc(lbl(h))} · נספרו ${pc(h.progress)}<br>${series.map(s => `${esc(s.label)}: ${s.get(h) == null ? "–" : yFmt(s.get(h))}`).join("<br>")}"/>`; }

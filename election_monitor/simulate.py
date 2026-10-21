@@ -139,11 +139,14 @@ class LiveSim:
             cn = city_noise.setdefault(r.code, {"t": rnd.gauss(0, 0.04),
                                                  "f": {p: rnd.lognormvariate(0, 0.12) for p in parties}})
             sector = self.sector_of(r.code)
-            eligible = round(r.eligible * 1.06)
-            turnout = (r.voters / r.eligible if r.eligible else 0) * MOCK_TURNOUT.get(sector, 1.0) * (1 + cn["t"])
-            voters = r.voters if r.code == 9999 else min(eligible, round(eligible * turnout))
-            if r.code == 9999:
+            if r.code == ENVELOPES_CODE:
+                # Double envelopes don't have an "eligible" register — the voters count IS the total.
+                eligible = r.eligible
                 voters = round(r.voters * MOCK_TURNOUT["envelopes"])
+            else:
+                eligible = round(r.eligible * 1.06)
+                turnout = (r.voters / r.eligible if r.eligible else 0) * MOCK_TURNOUT.get(sector, 1.0) * (1 + cn["t"])
+                voters = min(eligible, round(eligible * turnout))
             invalid = round(voters * (r.invalid / r.voters if r.voters else 0.006))
             valid = max(0, voters - invalid)
             w = {p: r.votes.get(p, 0) * MOCK_FAMILY_FACTORS.get(self.family(p), 1.0) * cn["f"][p]
@@ -163,7 +166,7 @@ class LiveSim:
         span = {c: rnd.uniform(0.02, 0.15) + 0.35 * rank[c] for c in size}
         self.when = []
         for r, *_ in self.rows:
-            if r.code == 9999:
+            if r.code == ENVELOPES_CODE:
                 t = rnd.uniform(0.55, 1.0)
             else:
                 # squared: most ballot boxes arrive in the first night, the rest trickle in over the days
