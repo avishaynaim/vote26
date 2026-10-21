@@ -5,7 +5,7 @@ Key ideas
 * **Locality matching** is done on the locality code (סמל ישוב), which is stable
   between elections. The double-envelopes row (code 9999) is matched too.
 * **Families** make lists comparable across elections (e.g. 2022 Labor + Meretz
-  vs. 2026 The Democrats). **Blocs** are the coarse political camps.
+  vs. a merged list in a later election). **Blocs** are the coarse political camps.
 * **Like-for-like (LFL)**: while counting is partial, comparing today's national
   share with the full baseline is misleading (early localities are not
   representative). Instead each reporting locality's *baseline* shares are

@@ -120,7 +120,7 @@ class TestAnalysis(unittest.TestCase):
         self.assertLessEqual(abs(blocs["N"]["proj_seats"] - 64), 2)
 
     def test_new_election_inherits_by_letter(self):
-        an = load_analyzer(CFG, "26", "25")
+        an = load_analyzer(CFG, "live", "25")
         an.cur.set_names({"מחל": "הליכוד", "זזז": "רשימה חדשה"})
         self.assertEqual(an.cur.party("מחל")["bloc"], "N")
         self.assertTrue(an.cur.party("מחל")["assumed"])

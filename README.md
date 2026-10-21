@@ -23,16 +23,15 @@ Pure Python 3.10+ standard library. No dependencies.
 
 `data/baseline/k25/` contains `expc.csv`, `expb.csv` and `national.json` (the parsed national page), downloaded from the site with `python3 -m election_monitor sync --election 25`.
 
-## The new site
+## Which site is monitored
 
-`config.json` assumes the new site follows the same pattern: `votes26.bechirot.gov.il` and `media26.bechirot.gov.il/files/expc.csv` / `expb.csv`. These are **guesses**: on 21 Oct 2026 both answered 404. To cope with different main or sub links, the monitor:
+By default the app monitors the link given for this project, **https://votes25.bechirot.gov.il/** (`config.json` → `elections.live.site`). Nothing else is hard-coded or guessed:
 
-1. tries every candidate URL and remembers the one that works,
-2. scans the site's pages (`discover_pages`) for links to `exp*.csv`, including `window.open(...)` links like on votes25, and repeats this every 10 failed polls,
-3. reads the site's national page every few polls for the official list names and the status headline,
-4. accepts manual files: put `expc.csv` / `expb.csv` into `data/inbox/` or use **Upload CSV** in the dashboard.
+1. at start (and every 10 failed polls) it reads the site's home and `nationalresults` pages and takes the `expc.csv` / `expb.csv` links from them, exactly as the votes25 pages link to `media25.bechirot.gov.il/files/…`,
+2. every few polls it reads the national page for the official list names and the status headline,
+3. manual fallback: put `expc.csv` / `expb.csv` into `data/inbox/` or use **Upload CSV** in the dashboard.
 
-If the new site uses different addresses, put them in `config.json` → `elections.26.site`, `sources`, `discover_pages`.
+When the new site is published (expected to work like votes25, possibly with different main/sub links), change `site` in `config.json` or run `python3 -m election_monitor --site <new link> serve`. Comparisons are always against the 2022 data in `data/baseline/k25/`.
 
 ## What it shows
 
@@ -49,14 +48,15 @@ These are my classifications, not data from the site:
 * **Blocs** of the 2022 lists (`N` Netanyahu bloc, `O` Jewish opposition, `A` Arab parties, `X` other).
 * **Families**, which group lists so they can be compared across elections.
 * **Sectors** thresholds.
-* **2026 lists**: none are configured. A 2026 list whose ballot letter existed in 2022 is assumed to be the same list (bloc and family copied) and is marked *assumed by letter* in the dashboard. New letters appear as *unclassified*. Add entries under `elections.26.parties` to classify them correctly.
-* **Surplus agreements** for 2026 (`elections.26.agreements`): empty. Add them if you want exact seat counts.
+* **Lists of the monitored site** that are not in config: a list whose ballot letter existed in 2022 is assumed to be the same list (bloc and family copied) and is marked *assumed by letter* in the dashboard. New letters appear as *unclassified*. Add entries under `elections.live.parties` to classify them correctly.
+* **Surplus agreements** of the monitored election (`elections.live.agreements`): empty. Add them if you want exact seat counts.
 * `eligible_growth` (1.06): expected growth of the voter register since 2022. It's only used when `expb.csv` is not available.
 
 ## Run
 
 ```bash
-python3 -m election_monitor serve              # election night: 26th Knesset vs. 2022 → http://localhost:8025
+python3 -m election_monitor serve              # monitor votes25 (default) vs. 2022 → http://localhost:8025
+python3 -m election_monitor --site <new link> serve   # monitor the new site when it is published
 python3 -m election_monitor probe              # which result URLs / site pages respond from this machine
 python3 -m election_monitor sync --election 25 # (re)download the 2022 site data
 python3 -m election_monitor --current 25 --baseline 25 serve --simulate --sim-steps 40 --sim-step-seconds 5

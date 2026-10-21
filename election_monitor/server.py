@@ -38,8 +38,10 @@ class Monitor:
         src = sources or ecfg.get("sources", {})
         self.expc = Source("expc", [_abs(u) for u in src.get("expc", [])])
         self.expb = Source("expb", [_abs(u) for u in src.get("expb", [])])
-        self.discover_pages = src.get("discover_pages", [])
         self.site_url = None if sources else ecfg.get("site")
+        # result-file links are read from the site's own pages (home + national results page)
+        self.discover_pages = src.get("discover_pages") or (
+            [self.site_url, self.site_url.rstrip("/") + "/nationalresults"] if self.site_url else [])
         self.analyzer = load_analyzer(cfg, current, baseline)
         self.data_dir = _abs(data_dir)
         self.snap_dir = os.path.join(self.data_dir, "snapshots", f"k{current}")
@@ -179,6 +181,9 @@ class Monitor:
                  + ", ".join(f"{b['key']}={b['seats']}" for b in st["blocs"]))
 
     def run(self) -> None:
+        if self.discover_pages:
+            self._discovered = True
+            self.discover()
         while not self._stop.is_set():
             try:
                 self.poll_once()
@@ -315,7 +320,8 @@ def serve(mon: Monitor, host: str, port: int) -> None:
     th.start()
     httpd = ThreadingHTTPServer((host, port), make_handler(mon))
     mon.log(f"dashboard: http://{host if host != '0.0.0.0' else 'localhost'}:{port}/  "
-            f"(monitoring Knesset {mon.current}, baseline Knesset {mon.baseline})")
+            f"(monitoring {mon.site_url or mon.expc.candidates[0]}, compared with "
+            f"{mon.cfg['elections'][mon.baseline].get('name', mon.baseline)})")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

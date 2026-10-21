@@ -1,7 +1,7 @@
 {
   "_comment": "Data comes only from the Central Elections Committee results site. List names and official seats are read from the site (national page); the bloc/family classification below is an analysis assumption you can edit. Lists of the monitored election that are not listed here inherit the classification of the SAME LETTER in the baseline election (shown as 'assumed by letter' in the dashboard).",
 
-  "current": "26",
+  "current": "live",
   "baseline": "25",
   "poll_seconds": 30,
   "expb_every": 2,
@@ -34,15 +34,11 @@
   },
 
   "elections": {
-    "26": {
-      "name": "26th Knesset",
-      "site": "https://votes26.bechirot.gov.il/",
-      "_sources_comment": "Guessed from the 2022 pattern (votes25 -> votes26, media25 -> media26); the site pages are also scanned for the real CSV links. data/inbox/*.csv is the manual fallback.",
-      "sources": {
-        "expc": ["https://media26.bechirot.gov.il/files/expc.csv", "data/inbox/expc.csv"],
-        "expb": ["https://media26.bechirot.gov.il/files/expb.csv", "data/inbox/expb.csv"],
-        "discover_pages": ["https://votes26.bechirot.gov.il/", "https://votes26.bechirot.gov.il/nationalresults"]
-      },
+    "live": {
+      "name": "Live election",
+      "_comment": "The monitored site. Default = the link given for this project. When the new site is published, change 'site' (or run with --site URL). Result-file links are read from the site's own pages, nothing is guessed.",
+      "site": "https://votes25.bechirot.gov.il/",
+      "sources": {"expc": ["data/inbox/expc.csv"], "expb": ["data/inbox/expb.csv"]},
       "inherit_by_letter": true,
       "parties": {},
       "agreements": []
@@ -52,11 +48,6 @@
       "name": "25th Knesset",
       "site": "https://votes25.bechirot.gov.il/",
       "baseline_dir": "data/baseline/k25",
-      "sources": {
-        "expc": ["https://media25.bechirot.gov.il/files/expc.csv"],
-        "expb": ["https://media25.bechirot.gov.il/files/expb.csv"],
-        "discover_pages": ["https://votes25.bechirot.gov.il/"]
-      },
       "parties": {
         "מחל": {"short": "Likud", "bloc": "N", "family": "likud"},
         "פה":  {"short": "Yesh Atid", "bloc": "O", "family": "lapid"},

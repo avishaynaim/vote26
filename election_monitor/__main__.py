@@ -1,6 +1,7 @@
 """Command line entry point.
 
-    python -m election_monitor serve                     # live monitoring (election night)
+    python -m election_monitor serve                     # monitor the configured site (votes25 by default)
+    python -m election_monitor --site URL serve          # monitor another site (e.g. the new one)
     python -m election_monitor --current 25 serve --simulate   # rehearsal: replay the 2022 count
     python -m election_monitor sync --election 25        # download a results site's files
     python -m election_monitor report --file expc.csv    # one-off text report
@@ -120,17 +121,19 @@ def print_report(st, cfg):
 
 
 def cmd_probe(a, cfg):
-    src = cfg["elections"][a.current]["sources"]
-    for kind in ("expc", "expb"):
-        for u in src.get(kind, []):
-            s = Source(kind, [_abs(u)], timeout=10)
-            r = s.fetch()
+    site = cfg["elections"][a.current].get("site")
+    if not site:
+        sys.exit("no 'site' configured")
+    try:
+        home = fetch_html(site, timeout=15)
+    except Exception as e:
+        sys.exit(f"site {site}: {getattr(e, 'reason', e)}")
+    p = parse_results_page(home)
+    print(f"site {site}: status '{p['status']}', {len(p['lists'])} lists, totals {p['totals']}")
+    for kind, urls in find_csv_links(home, site).items():
+        for u in urls:
+            r = Source(kind, [u], timeout=30).fetch()
             print(f"{kind}: {u} -> {r.status}{' ' + r.error if r.error else ''}")
-    for page in src.get("discover_pages", []):
-        try:
-            print(f"site page {page}: CSV links {find_csv_links(fetch_html(page, timeout=10), page)}")
-        except Exception as e:
-            print(f"site page {page}: {getattr(e, 'reason', e)}")
 
 
 def cmd_sync(a, cfg):
@@ -146,6 +149,7 @@ def main(argv=None):
     ap.add_argument("--config", default=os.path.join(ROOT, "config.json"))
     ap.add_argument("--current", help="election key to monitor (default from config)")
     ap.add_argument("--baseline", help="election key to compare with (default from config)")
+    ap.add_argument("--site", help="results site to monitor (default: config 'site', https://votes25.bechirot.gov.il/)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("serve", help="poll the results feed and serve the dashboard")
     s.add_argument("--host", default="127.0.0.1")
@@ -166,6 +170,8 @@ def main(argv=None):
     y.add_argument("--url", help="site URL (default: the election's 'site' in config)")
     a = ap.parse_args(argv)
     cfg = load_config(a.config)
+    if getattr(a, "site", None):
+        cfg["elections"][cfg["current"]]["site"] = a.site
     a.current = a.current or cfg["current"]
     a.baseline = a.baseline or cfg["baseline"]
     for k in (a.current, a.baseline):
