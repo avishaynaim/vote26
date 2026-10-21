@@ -102,7 +102,7 @@ class Replay:
 # Mock live election: the 2022 ballots (from the results site) with random changes, reported
 # ballot by ballot over several simulated days, at a speed that can be changed while running.
 # ---------------------------------------------------------------------------------------------
-SPEEDS = (1, 2, 5, 10, 30, 50, 100, 1000)
+SPEEDS = (500, 1000, 2000, 5000, 7000)
 
 # Mock shifts per family (multiplier on votes) and turnout change per sector (relative). Random
 # noise per locality and per ballot is added on top, so every run of the same seed is identical.

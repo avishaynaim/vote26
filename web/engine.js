@@ -497,7 +497,7 @@
   }
 
   // ------------------------------------------------------------------ mock live simulation (port of simulate.LiveSim)
-  const SPEEDS = [1, 2, 5, 10, 30, 50, 100, 1000];
+  const SPEEDS = [500, 1000, 2000, 5000, 7000];
   const FAMILY_F = { likud: 0.88, lapid: 1.04, far_right: 1.12, gantz: 1.18, left: 1.25, shas: 0.97, utj: 1.03, yb: 1.22, raam: 1.08, joint: 0.95, right_alt: 0.6 };
   const TURNOUT_F = { arab: 1.07, haredi: 1.02, large: 0.98, jewish: 1, envelopes: 1.05 };
   function rng(seed) { let a = seed >>> 0; const u = () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };

@@ -145,7 +145,7 @@ def main(argv=None):
     s.add_argument("--simulate", action="store_true",
                    help="mock live election: 2022 results with random changes, arriving over --days simulated days")
     s.add_argument("--days", type=float, default=5.0)
-    s.add_argument("--speed", type=int, default=100, choices=[1, 2, 5, 10, 30, 50, 100, 1000])
+    s.add_argument("--speed", type=int, default=1000, choices=[500, 1000, 2000, 5000, 7000])
     r = sub.add_parser("report", help="print a one-off analysis")
     r.add_argument("--file", help="expc.csv to analyse (default: fetch from the configured URLs)")
     r.add_argument("--json", action="store_true")
