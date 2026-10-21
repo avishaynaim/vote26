@@ -25,7 +25,7 @@ Pure Python 3.10+ standard library. No dependencies.
 
 ## Which site is monitored
 
-By default the app monitors the link given for this project, **https://votes25.bechirot.gov.il/** (`config.json` → `elections.live.site`). Nothing else is hard-coded or guessed:
+By default the app monitors **https://votes26.bechirot.gov.il/** — the expected URL for the 26th Knesset results, following the Central Elections Committee's existing `votesNN.bechirot.gov.il` pattern. The site goes online a few days before election day; the discovery pipeline below picks up CSV links from it automatically once it's up. Set `elections.live.site` (or pass `--site URL`) if the real host turns out to differ.
 
 1. at start (and every 10 failed polls) it reads the site's home and `nationalresults` pages and takes the `expc.csv` / `expb.csv` links from them, exactly as the votes25 pages link to `media25.bechirot.gov.il/files/…`,
 2. every few polls it reads the national page for the official list names and the status headline,

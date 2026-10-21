@@ -95,9 +95,9 @@
   },
   "elections": {
     "live": {
-      "name": "Live election",
-      "_comment": "The monitored site. Default = the link given for this project. When the new site is published, change 'site' (or run with --site URL). Result-file links are read from the site's own pages, nothing is guessed.",
-      "site": "https://votes25.bechirot.gov.il/",
+      "name": "26th Knesset (live)",
+      "_comment": "The 26th Knesset results site is expected to follow the votes25 pattern. Default is votes26.bechirot.gov.il — override with --site URL if the real host turns out different. Result-file links are read from the site's own pages, nothing is guessed.",
+      "site": "https://votes26.bechirot.gov.il/",
       "sources": {
         "expc": [
           "data/inbox/expc.csv"
