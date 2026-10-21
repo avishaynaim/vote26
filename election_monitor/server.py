@@ -467,6 +467,68 @@ def make_handler(mon: Monitor):
                 return self._json(d) if d else self._json({"error": "not found"}, 404)
             if path == "/api/export/cities.csv":
                 return self._send(200, mon.cities_csv().encode("utf-8"), "text/csv; charset=utf-8")
+            if path == "/api/analytics/wasted":
+                return self._json(mon.analyzer.wasted_votes(mon.current_file))
+            if path == "/api/analytics/momentum":
+                with mon.lock:
+                    hist = list(mon.history)
+                return self._json(mon.analyzer.momentum(hist))
+            if path == "/api/analytics/tipping":
+                return self._json(mon.analyzer.tipping_points(mon.current_file))
+            if path == "/api/analytics/benford":
+                return self._json(mon.analyzer.benford(mon.current_file))
+            if path == "/api/analytics/elasticity":
+                return self._json(mon.analyzer.elasticity(mon.current_file))
+            if path == "/api/analytics/gradient":
+                return self._json(mon.analyzer.swing_gradient(mon.current_file))
+            if path == "/api/analytics/montecarlo":
+                return self._json(mon.analyzer.monte_carlo(mon.current_file, mon.ballots))
+            if path == "/api/analytics/bigcities":
+                return self._json(mon.analyzer.big_cities_deep(mon.current_file))
+            if path == "/api/analytics/coalition":
+                return self._json(mon.analyzer.coalition_paths(mon.current_file))
+            if path == "/api/analytics/blocinternalshift":
+                return self._json(mon.analyzer.bloc_internal_shift(mon.current_file))
+            if path == "/api/analytics/geoconcentration":
+                return self._json(mon.analyzer.geographic_concentration(mon.current_file))
+            if path == "/api/analytics/seatefficiency":
+                return self._json(mon.analyzer.seat_efficiency(mon.current_file))
+            if path == "/api/analytics/cascade":
+                return self._json(mon.analyzer.cascade_effect(mon.current_file))
+            if path == "/api/analytics/nowcast":
+                return self._json(mon.analyzer.turnout_nowcast(mon.current_file))
+            if path == "/api/analytics/comovement":
+                return self._json(mon.analyzer.party_comovement(mon.current_file))
+            if path == "/api/analytics/envelopes":
+                return self._json(mon.analyzer.envelope_analysis(mon.current_file))
+            if path == "/api/analytics/lastseat":
+                return self._json(mon.analyzer.last_seat_race(mon.current_file))
+            if path == "/api/analytics/swingdecomp":
+                return self._json(mon.analyzer.swing_decomposition(mon.current_file))
+            if path == "/api/analytics/newvoters":
+                return self._json(mon.analyzer.new_voter_cities(mon.current_file))
+            if path == "/api/analytics/pace":
+                return self._json(mon.analyzer.reporting_pace(mon.current_file))
+            if path == "/api/analytics/threshsens":
+                return self._json(mon.analyzer.threshold_sensitivity(mon.current_file))
+            if path == "/api/analytics/familyflows":
+                return self._json(mon.analyzer.family_flow_estimate(mon.current_file))
+            if path == "/api/analytics/bellwether":
+                return self._json(mon.analyzer.bellwether_ranking(mon.current_file))
+            if path == "/api/analytics/extremes":
+                return self._json(mon.analyzer.party_extremes(mon.current_file))
+            if path == "/api/analytics/sectordeep":
+                return self._json(mon.analyzer.sector_deep_compare(mon.current_file))
+            if path == "/api/analytics/projtrack":
+                with mon.lock:
+                    hist = list(mon.history)
+                return self._json(mon.analyzer.projection_accuracy_track(hist))
+            if path == "/api/analytics/surplus":
+                return self._json(mon.analyzer.surplus_optimizer(mon.current_file))
+            if path == "/api/analytics/insights2":
+                with mon.lock:
+                    hist = list(mon.history)
+                return self._json(mon.analyzer.live_insights_extended(mon.current_file, hist))
             return self._json({"error": "not found"}, 404)
 
         def do_POST(self):

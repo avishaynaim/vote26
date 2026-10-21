@@ -698,6 +698,17 @@ function route(isUpdate) {
   // on a data update, keep interactive pages (ballot search, inputs) from being re-rendered under the user's hands
   if (isUpdate && (name === "ballot") && curRoute === location.hash) return;
   if (isUpdate && name === "cities" && $("#cityView")) { renderInto(() => { renderCityTable(); scatter(); }); return; }
+  // analytics tab: skip full rebuild on data polls (prevents FLIP/row-jump animations every 3s).
+  // Only refresh the 4 live KPI values in-place; deep analysis cards keep their loaded content.
+  if (isUpdate && name === "analytics" && $("#analyticsLive")) {
+    const vel = voteVelocity();
+    const patch = (key, html) => { const el = $(`#analyticsLive .val[data-key="${key}"]`); if (el) el.innerHTML = html; };
+    patch("קצב_ספירה", nf(vel.bpm) + " <span class='sub'>קולות/דקה</span>");
+    patch("זמן_משוער_לסיום", fmtEta(vel.eta));
+    patch("יישובים_שדיווחו", nf(S.progress.localities_reporting) + " / " + nf(S.progress.localities_total));
+    patch("ודאות_התחזית", S.projection ? ({ low: "נמוכה", medium: "בינונית", high: "גבוהה" })[S.projection.confidence] : "–");
+    return;
+  }
   const changed = curRoute !== location.hash;
   curRoute = location.hash;
   // only cross-fade on actual route change — a data poll should feel seamless, no full-view flash
@@ -1163,7 +1174,36 @@ function renderTimeline() {
 }
 
 // ---------- ANALYTICS
-let analytics = { matrix: null, matrixKey: null, whatif: { arab: 0, haredi: 0, large: 0, jewish: 0 }, whatifBloc: { N: 0, O: 0, A: 0 }, whatifResult: null };
+let analytics = { matrix: null, matrixKey: null, whatif: { arab: 0, haredi: 0, large: 0, jewish: 0 }, whatifBloc: { N: 0, O: 0, A: 0 }, whatifResult: null,
+  wasted: null, wastedKey: null,
+  momentum: null, momentumKey: null,
+  tipping: null, tippingKey: null,
+  benford: null, benfordKey: null,
+  elasticity: null, elasticityKey: null,
+  gradient: null, gradientKey: null,
+  montecarlo: null, montecarloKey: null,
+  bigcities: null, bigcitiesKey: null,
+  coalition: null, coalitionKey: null,
+  blocinternalshift: null, blocinternalshiftKey: null,
+  geoconcentration: null, geoconcentrationKey: null,
+  seatefficiency: null, seatefficiencyKey: null,
+  cascade: null, cascadeKey: null,
+  nowcast: null, nowcastKey: null,
+  comovement: null, comovementKey: null,
+  envelopes: null, envelopesKey: null,
+  lastseat: null, lastseatKey: null,
+  swingdecomp: null, swingdecompKey: null,
+  newvoters: null, newvotersKey: null,
+  pace: null, paceKey: null,
+  threshsens: null, threshsensKey: null,
+  familyflows: null, familyflowsKey: null,
+  bellwether: null, bellwetherKey: null,
+  extremes: null, extremesKey: null,
+  sectordeep: null, sectordeepKey: null,
+  projtrack: null, projtrackKey: null,
+  surplus: null, surplusKey: null,
+  insights2: null, insights2Key: null,
+};
 function sparkline(points, color, width = 92, height = 24) {
   if (!points || points.length < 2) return `<svg width="${width}" height="${height}"></svg>`;
   const n = points.length, max = Math.max(...points, 0.001), min = Math.min(...points, 0);
@@ -1217,6 +1257,16 @@ async function loadMatrix() {
   } catch (e) { analytics.matrix = null; }
   return analytics.matrix;
 }
+async function loadAnalytic(name, endpoint) {
+  const key = S && S.meta && S.meta.hash;
+  const cacheKey = name + "Key";
+  if (analytics[cacheKey] === key && analytics[name]) return analytics[name];
+  try {
+    analytics[name] = await api(endpoint);
+    analytics[cacheKey] = key;
+  } catch (e) { analytics[name] = null; }
+  return analytics[name];
+}
 async function runWhatif() {
   try {
     const body = { turnout_delta: analytics.whatif, bloc_swing: analytics.whatifBloc };
@@ -1247,7 +1297,7 @@ function renderAnalytics() {
   const vel = voteVelocity();
   const top = S.parties.filter(p => (p.pct || 0) >= 0.005).slice(0, 14);
   $("#view").innerHTML = `
-  <div class="grid g-kpi">
+  <div class="grid g-kpi" id="analyticsLive">
     ${kpi("קצב ספירה", nf(vel.bpm) + " <span class='sub'>קולות/דקה</span>", vel.vps ? `≈ ${nf(Math.round(vel.vps))} קולות/שנ׳` : "אין מספיק דגימות")}
     ${kpi("זמן משוער לסיום", fmtEta(vel.eta), vel.eta ? "לפי המקצב של 20 העדכונים האחרונים" : "–")}
     ${kpi("יישובים שדיווחו", nf(S.progress.localities_reporting) + " / " + nf(S.progress.localities_total), S.progress.envelopes_counted ? "מעטפות חיצוניות: נספרו" : "מעטפות חיצוניות: טרם")}
@@ -1316,6 +1366,35 @@ function renderAnalytics() {
   // Advanced analyses appended at the bottom of the view
   const view = $("#view");
   view.insertAdjacentHTML("beforeend", advancedAnalyses());
+  // Load all deep analytics panels asynchronously
+  loadAnalytic("wasted", "/api/analytics/wasted").then(d => { const el = $("#wastedCard"); if (el && d) el.innerHTML = wastedHtml(d); });
+  loadAnalytic("momentum", "/api/analytics/momentum").then(d => { const el = $("#momentumCard"); if (el && d) el.innerHTML = momentumHtml(d); });
+  loadAnalytic("tipping", "/api/analytics/tipping").then(d => { const el = $("#tippingCard"); if (el && d) el.innerHTML = tippingHtml(d); });
+  loadAnalytic("benford", "/api/analytics/benford").then(d => { const el = $("#benfordCard"); if (el && d) el.innerHTML = benfordHtml(d); });
+  loadAnalytic("elasticity", "/api/analytics/elasticity").then(d => { const el = $("#elasticityCard"); if (el && d) el.innerHTML = elasticityHtml(d); });
+  loadAnalytic("gradient", "/api/analytics/gradient").then(d => { const el = $("#gradientCard"); if (el && d) el.innerHTML = gradientHtml(d); });
+  loadAnalytic("montecarlo", "/api/analytics/montecarlo").then(d => { const el = $("#montecarloCard"); if (el && d) el.innerHTML = montecarloHtml(d); });
+  loadAnalytic("bigcities", "/api/analytics/bigcities").then(d => { const el = $("#bigcitiesCard"); if (el && d) el.innerHTML = bigcitiesHtml(d); });
+  loadAnalytic("coalition", "/api/analytics/coalition").then(d => { const el = $("#coalitionCard"); if (el && d) el.innerHTML = coalitionHtml(d); });
+  loadAnalytic("blocinternalshift", "/api/analytics/blocinternalshift").then(d => { const el = $("#blocshiftCard"); if (el && d) el.innerHTML = blocshiftHtml(d); });
+  loadAnalytic("geoconcentration", "/api/analytics/geoconcentration").then(d => { const el = $("#geoconcCard"); if (el && d) el.innerHTML = geoconcHtml(d); });
+  loadAnalytic("seatefficiency", "/api/analytics/seatefficiency").then(d => { const el = $("#seateffCard"); if (el && d) el.innerHTML = seateffHtml(d); });
+  loadAnalytic("cascade", "/api/analytics/cascade").then(d => { const el = $("#cascadeCard"); if (el && d) el.innerHTML = cascadeHtml(d); });
+  loadAnalytic("nowcast", "/api/analytics/nowcast").then(d => { const el = $("#nowcastCard"); if (el && d) el.innerHTML = nowcastHtml(d); });
+  loadAnalytic("comovement", "/api/analytics/comovement").then(d => { const el = $("#comovementCard"); if (el && d) el.innerHTML = comovementHtml(d); });
+  loadAnalytic("envelopes", "/api/analytics/envelopes").then(d => { const el = $("#envelopesCard"); if (el && d) el.innerHTML = envelopesHtml(d); });
+  loadAnalytic("lastseat", "/api/analytics/lastseat").then(d => { const el = $("#lastseatCard"); if (el && d) el.innerHTML = lastseatHtml(d); });
+  loadAnalytic("swingdecomp", "/api/analytics/swingdecomp").then(d => { const el = $("#swingdecompCard"); if (el && d) el.innerHTML = swingdecompHtml(d); });
+  loadAnalytic("newvoters", "/api/analytics/newvoters").then(d => { const el = $("#newvotersCard"); if (el && d) el.innerHTML = newvotersHtml(d); });
+  loadAnalytic("pace", "/api/analytics/pace").then(d => { const el = $("#paceCard"); if (el && d) el.innerHTML = paceHtml(d); });
+  loadAnalytic("threshsens", "/api/analytics/threshsens").then(d => { const el = $("#threshsensCard"); if (el && d) el.innerHTML = threshsensHtml(d); });
+  loadAnalytic("familyflows", "/api/analytics/familyflows").then(d => { const el = $("#familyflowsCard"); if (el && d) el.innerHTML = familyflowsHtml(d); });
+  loadAnalytic("bellwether", "/api/analytics/bellwether").then(d => { const el = $("#bellwetherCard"); if (el && d) el.innerHTML = bellwetherHtml(d); });
+  loadAnalytic("extremes", "/api/analytics/extremes").then(d => { const el = $("#extremesCard"); if (el && d) el.innerHTML = extremesHtml(d); });
+  loadAnalytic("sectordeep", "/api/analytics/sectordeep").then(d => { const el = $("#sectordeepCard"); if (el && d) el.innerHTML = sectordeepHtml(d); });
+  loadAnalytic("projtrack", "/api/analytics/projtrack").then(d => { const el = $("#projtackCard"); if (el && d) el.innerHTML = projtackHtml(d); });
+  loadAnalytic("surplus", "/api/analytics/surplus").then(d => { const el = $("#surplusCard"); if (el && d) el.innerHTML = surplusHtml(d); });
+  loadAnalytic("insights2", "/api/analytics/insights2").then(d => { const el = $("#insights2Card"); if (el && d) el.innerHTML = insights2Html(d); });
 }
 
 // -- advanced analyses: bellwether cities, threshold watchlist, head-to-head, stability, outliers
@@ -1435,6 +1514,208 @@ function sectorOutliers() {
   </tbody></table>`;
 }
 
+// ── Wasted votes ────────────────────────────────────────────────────────────
+function wastedHtml(d) {
+  const total = d.total_valid || 0;
+  const wPct = (d.wasted_pct || 0) * 100;
+  if (!d.parties || !d.parties.length)
+    return `<h2>קולות אבודים <small>רשימות מתחת לאחוז החסימה</small></h2><p class="muted">אין רשימות מתחת לאחוז החסימה.</p>`;
+  const bar = (v, color) => `<div style="height:10px;border-radius:5px;background:${color};width:${Math.min(100, v * 100 / Math.max(1, d.parties[0].pct * 100))}%;min-width:4px"></div>`;
+  return `<h2>קולות אבודים <small>רשימות מתחת לאחוז החסימה — ${pc(d.wasted_pct)} מהקולות הכשרים</small></h2>
+    <div style="margin-bottom:10px">
+      <div style="height:14px;border-radius:7px;overflow:hidden;display:flex;background:var(--border)">
+        <div style="width:${wPct.toFixed(1)}%;background:#ef4444;transition:width 0.5s" title="${wPct.toFixed(1)}% קולות אבודים"></div>
+      </div>
+      <div class="sub" style="margin-top:4px">${nf(d.wasted)} קולות אבודים (${wPct.toFixed(1)}%) מתוך ${nf(total)} קולות כשרים</div>
+    </div>
+    <table><thead><tr><th>רשימה</th><th class="n">קולות</th><th class="n">אחוז</th><th class="n">חסרים לחסימה</th><th>גוש</th></tr></thead><tbody>
+    ${d.parties.slice(0, 10).map(p => `<tr class="click" onclick="goParty(${js(p.letter)})">
+      <td>${letterBadge(p)} ${esc(p.short_he)}</td>
+      <td class="n">${nf(p.votes)}</td>
+      <td class="n down">${pc(p.pct, 2)}</td>
+      <td class="n warn">${nf(p.votes_to_threshold)}</td>
+      <td><span class="sw" style="background:${blocColor(p.bloc)}"></span>${esc(blocName(p.bloc))}</td>
+    </tr>`).join("")}
+    </tbody></table>`;
+}
+
+// ── Momentum ─────────────────────────────────────────────────────────────────
+function momentumHtml(d) {
+  if (!d.parties || !d.parties.length)
+    return `<h2>מומנטום רשימות <small>קצב שינוי האחוז</small></h2><p class="muted">דרושים לפחות 3 עדכונים (קיימים ${d.snapshots || 0}).</p>`;
+  const arrow = m => m > 0.05 ? "▲" : m < -0.05 ? "▼" : "●";
+  const arrowCls = m => m > 0.05 ? "up" : m < -0.05 ? "down" : "muted";
+  return `<h2>מומנטום רשימות <small>שיפוע ב-${d.snapshots} העדכונים האחרונים — נק׳ אחוז לעדכון</small></h2>
+    <table><thead><tr><th>רשימה</th><th class="n">אחוז כעת</th><th class="n">מומנטום</th><th class="n">תאוצה</th><th>מגמה</th></tr></thead><tbody>
+    ${d.parties.filter(p => p.pct != null && p.pct >= 0.005).slice(0, 14).map(p => {
+      const c = pColor(p);
+      return `<tr class="click" onclick="goParty(${js(p.letter)})">
+        <td>${letterBadge(p)} ${esc(p.short_he)}</td>
+        <td class="n">${pc(p.pct, 2)}</td>
+        <td class="n ${arrowCls(p.momentum)}"><b>${arrow(p.momentum)} ${p.momentum != null ? (p.momentum >= 0 ? "+" : "") + p.momentum.toFixed(2) : "–"}</b></td>
+        <td class="n ${arrowCls(p.acceleration)}">${p.acceleration != null ? (p.acceleration >= 0 ? "+" : "") + p.acceleration.toFixed(2) : "–"}</td>
+        <td style="padding:4px 8px">${sparkline(p.series.map((v,i) => v), c, 100, 24)}</td>
+      </tr>`;
+    }).join("")}
+    </tbody></table>`;
+}
+
+// ── Elasticity ───────────────────────────────────────────────────────────────
+function elasticityHtml(d) {
+  if (!d.parties || !d.parties.length)
+    return `<h2>רגישות מנדטים</h2><p class="muted">אין עדיין מספיק נתונים.</p>`;
+  return `<h2>רגישות מנדטים <small>מנדטים שישתנו עם הוספת / חסרון 1% מהקולות הארציים</small></h2>
+    <table><thead><tr><th>רשימה</th><th class="n">מנדטים</th><th class="n">+1% → מנד׳</th><th class="n">−1% → מנד׳</th><th class="n">אחוז</th></tr></thead><tbody>
+    ${d.parties.filter(p => p.seats > 0 || (p.pct || 0) >= 0.02).slice(0, 14).map(p => `<tr class="click" onclick="goParty(${js(p.letter)})">
+      <td>${letterBadge(p)} ${esc(p.short_he)}</td>
+      <td class="n"><b>${p.seats}</b></td>
+      <td class="n ${p.gain_1pp > 0 ? "up" : p.gain_1pp < 0 ? "down" : ""}">${p.gain_1pp >= 0 ? "+" : ""}${p.gain_1pp}</td>
+      <td class="n ${p.lose_1pp > 0 ? "up" : p.lose_1pp < 0 ? "down" : ""}">${p.lose_1pp >= 0 ? "+" : ""}${p.lose_1pp}</td>
+      <td class="n muted">${pc(p.pct, 2)}</td>
+    </tr>`).join("")}
+    </tbody></table>`;
+}
+
+// ── Monte Carlo ──────────────────────────────────────────────────────────────
+function montecarloHtml(d) {
+  if (!d.parties || !d.parties.length)
+    return `<h2>סימולציית מונטה קרלו</h2><p class="muted">אין עדיין מספיק נתונים.</p>`;
+  const frac = d.frac_counted != null ? ` · ${(d.frac_counted * 100).toFixed(0)}% נספר` : "";
+  return `<h2>סימולציית מונטה קרלו <small>${d.iterations} ריצות${frac}</small></h2>
+    <table><thead><tr><th>רשימה</th><th class="n">מנד׳ כעת</th><th class="n">טווח (P10–P90)</th><th class="n">ממוצע</th><th>אי-וודאות</th></tr></thead><tbody>
+    ${d.parties.filter(p => p.seats_now > 0 || (p.pct || 0) >= 0.025).slice(0, 14).map(p => {
+      const c = pColor(p);
+      const w = Math.max(4, ((p.p90 - p.p10) / Math.max(1, 30)) * 200);
+      return `<tr class="click" onclick="goParty(${js(p.letter)})">
+        <td>${letterBadge(p)} ${esc(p.short_he)}</td>
+        <td class="n"><b>${p.seats_now}</b></td>
+        <td class="n">${p.p10}–${p.p90}</td>
+        <td class="n muted">${p.mean != null ? p.mean.toFixed(1) : "–"}</td>
+        <td style="padding:4px 8px">
+          <div style="position:relative;height:12px;border-radius:6px;background:var(--border);width:140px">
+            <div style="position:absolute;left:${(p.p10/30*140).toFixed(0)}px;width:${Math.max(6,(p.p90-p.p10)/30*140).toFixed(0)}px;height:100%;border-radius:6px;background:${c};opacity:0.7"></div>
+            <div style="position:absolute;left:${(p.seats_now/30*140).toFixed(0)}px;width:2px;height:100%;background:${c}"></div>
+          </div>
+        </td>
+      </tr>`;
+    }).join("")}
+    </tbody></table>`;
+}
+
+// ── Tipping points ───────────────────────────────────────────────────────────
+function tippingHtml(d) {
+  if (!d.cities || !d.cities.length)
+    return `<h2>יישובי ציר — נקודות מפנה</h2><p class="muted">אין עדיין מספיק נתונים.</p>`;
+  const influential = d.cities.filter(c => c.influential);
+  return `<h2>יישובי ציר — נקודות מפנה <small>יישובים שתזוזה של 3% בהם תשנה מנדטים לגוש נתניהו · ${d.base_n_seats} מנד׳ לגוש כעת</small></h2>
+    ${influential.length ? `<p class="note">⚡ יישובים שסימולציה הצביעה על שינוי מנדט: <b>${influential.map(c => c.name).join("، ")}</b></p>` : ""}
+    <div class="scroll"><table><thead><tr><th>יישוב</th><th>מגזר</th><th class="n">קולות כשרים</th><th class="n">גוש נ׳</th><th class="n">אופוזיציה</th><th class="n">משקל ארצי</th><th class="n">שינוי מנד׳ (סימולציה)</th></tr></thead><tbody>
+    ${d.cities.slice(0, 20).map(c => `<tr class="click" onclick="goCity(${c.code})"${c.influential ? ' style="font-weight:600"' : ""}>
+      <td><b>${esc(c.name)}</b>${c.influential ? ' <span class="tag warn">מכריע</span>' : ""}</td>
+      <td class="muted">${esc(SECTORS[c.sector] || c.sector)}</td>
+      <td class="n">${nf(c.valid)}</td>
+      <td class="n">${pc(c.n_share)}</td>
+      <td class="n">${pc(c.o_share)}</td>
+      <td class="n muted">${pc(c.weight, 2)}</td>
+      <td class="n ${c.seat_swing > 0 ? "up" : c.seat_swing < 0 ? "down" : ""}">${c.seat_swing >= 0 ? "+" : ""}${c.seat_swing}</td>
+    </tr>`).join("")}
+    </tbody></table></div>`;
+}
+
+// ── Swing gradient ───────────────────────────────────────────────────────────
+function gradientHtml(d) {
+  if (!d.parties || !d.parties.length)
+    return `<h2>פרופיל עירוני/כפרי</h2><p class="muted">אין עדיין מספיק נתונים.</p>`;
+  const profile_he = { urban: "עירוני", rural: "כפרי/פריפריה", uniform: "אחיד" };
+  const profile_color = { urban: "#3b82f6", rural: "#22c55e", uniform: "#9ca3af" };
+  return `<h2>פרופיל עירוני/כפרי <small>קורלציה (r) בין גודל יישוב לתמיכה</small></h2>
+    <table><thead><tr><th>רשימה</th><th class="n">קורלציה (r)</th><th>פרופיל</th><th>חמישוני גודל → תמיכה</th></tr></thead><tbody>
+    ${d.parties.map(p => {
+      const c = pColor(p);
+      const qs = (p.quintiles || []).map(q => q.mean_share || 0);
+      const mx = Math.max(...qs, 0.01);
+      return `<tr class="click" onclick="goParty(${js(p.letter)})">
+        <td>${letterBadge(p)} ${esc(p.short_he)}</td>
+        <td class="n ${p.corr > 0.15 ? "up" : p.corr < -0.15 ? "down" : "muted"}"><b>${p.corr != null ? (p.corr >= 0 ? "+" : "") + p.corr.toFixed(2) : "–"}</b></td>
+        <td><span style="color:${profile_color[p.profile]};font-weight:600">${profile_he[p.profile] || p.profile}</span></td>
+        <td style="padding:4px 8px">
+          <div style="display:flex;gap:2px;align-items:flex-end;height:28px">
+            ${qs.map(v => `<div style="width:16px;background:${c};opacity:0.8;border-radius:2px 2px 0 0;height:${(v/mx*28).toFixed(0)}px" title="${pc(v)}"></div>`).join("")}
+          </div>
+        </td>
+      </tr>`;
+    }).join("")}
+    </tbody></table>`;
+}
+
+// ── Benford's Law ─────────────────────────────────────────────────────────────
+function benfordHtml(d) {
+  if (!d.sufficient)
+    return `<h2>חוק בנפורד <small>בדיקת ספרות ראשונות</small></h2><p class="muted">אין מספיק נתונים (${d.counts} תוצאות קיימות, דרושות לפחות 50).</p>`;
+  const conf_he = { conforming: "תקין", borderline: "גבולי", "non-conforming": "חריג" };
+  const conf_cls = { conforming: "ok", borderline: "warn", "non-conforming": "bad" };
+  const maxObs = Math.max(...Object.values(d.observed));
+  return `<h2>חוק בנפורד <small>χ²=${d.chi2} — ${conf_he[d.conformance] || d.conformance} · ${nf(d.counts)} ספרות נבדקו</small></h2>
+    <p class="sub">חוק בנפורד: בנתונים טבעיים הספרה הראשונה מחולקת לוגריתמית. סטייה גדולה מעידה על אי-סדירות.</p>
+    <span class="tag ${conf_cls[d.conformance] || "info"}">${conf_he[d.conformance] || d.conformance}</span>
+    <div style="margin-top:12px">
+      <div style="display:flex;gap:4px;align-items:flex-end;height:80px;direction:ltr">
+        ${[1,2,3,4,5,6,7,8,9].map(digit => {
+          const obs = (d.observed[digit] || 0);
+          const exp = (d.expected[digit] || 0);
+          const hObs = (obs / maxObs * 70).toFixed(0);
+          const hExp = (exp / maxObs * 70).toFixed(0);
+          return `<div style="display:flex;flex-direction:column;align-items:center;gap:1px;flex:1">
+            <div style="display:flex;gap:1px;align-items:flex-end;height:70px">
+              <div style="width:10px;background:#3b82f6;border-radius:2px 2px 0 0;height:${hObs}px" title="נצפה ${pc(obs)}"></div>
+              <div style="width:10px;background:#ef4444;opacity:0.5;border-radius:2px 2px 0 0;height:${hExp}px" title="צפוי ${pc(exp)}"></div>
+            </div>
+            <div class="sub" style="font-size:10px">${digit}</div>
+          </div>`;
+        }).join("")}
+      </div>
+      <div class="sub" style="margin-top:6px"><span style="color:#3b82f6">■</span> נצפה &nbsp;<span style="color:#ef4444;opacity:0.7">■</span> צפוי (חוק בנפורד)</div>
+    </div>`;
+}
+
+// ── Big cities deep ───────────────────────────────────────────────────────────
+function bigcitiesHtml(d) {
+  if (!d.cities || !d.cities.length)
+    return `<h2>הערים הגדולות — ניתוח מעמיק</h2><p class="muted">אין עדיין מספיק נתונים.</p>`;
+  const reported = d.cities.filter(c => c.reported);
+  if (!reported.length)
+    return `<h2>הערים הגדולות — ניתוח מעמיק</h2><p class="muted">הערים הגדולות טרם דיווחו.</p>`;
+  const fam_names = d.fam_names || {};
+  // All families that appear in any city
+  const fams = [...new Set(reported.flatMap(c => (c.families || []).map(f => f.family)))].slice(0, 7);
+  const famColor = f => { const p = CFG && Object.entries(CFG.current || {}).find(([l, px]) => px.family === f); return p ? pColor(p[1]) : "#9ca3af"; };
+  return `<h2>הערים הגדולות — ניתוח מעמיק <small>20 ערים · שינוי עם 2022 · כל משפחה פוליטית</small></h2>
+    <div class="scroll"><table><thead><tr>
+      <th>עיר</th><th class="n">הצבעה</th><th class="n">Δ הצבעה</th><th>מנצחת</th><th>2022</th>
+      ${fams.map(f => `<th class="n" style="font-size:11px" title="${esc(fam_names[f] || f)}">${esc((fam_names[f] || f).substring(0, 6))}</th>`).join("")}
+      <th class="n">גוש נ׳</th><th class="n">Δ גוש נ׳</th>
+    </tr></thead><tbody>
+    ${reported.map(c => {
+      const famCells = fams.map(f => {
+        const fd = (c.families || []).find(x => x.family === f);
+        return fd ? `<td class="n" style="font-size:11px">${pc(fd.now, 0)}<span class="muted" style="font-size:9px"> ${fd.delta != null ? (fd.delta >= 0 ? "+" : "") + (fd.delta * 100).toFixed(0) : ""}</span></td>` : `<td class="n muted">–</td>`;
+      }).join("");
+      const flipped = c.flipped ? '<span class="tag warn" style="font-size:9px">מפנה</span>' : "";
+      return `<tr class="click" onclick="goCity(${c.code})">
+        <td><b>${esc(c.name)}</b>${flipped}</td>
+        <td class="n">${pc(c.turnout)}</td>
+        <td class="n ${cls(c.turnout_delta)}">${pp(c.turnout_delta)}</td>
+        <td>${c.winner_he ? `<span style="font-weight:600">${esc(c.winner_he)}</span> ${pc(c.winner_pct, 0)}` : "–"}</td>
+        <td class="muted">${c.base_winner_he ? `${esc(c.base_winner_he)} ${pc(c.base_winner_pct, 0)}` : "–"}</td>
+        ${famCells}
+        <td class="n">${pc(c.bloc_n_now)}</td>
+        <td class="n ${cls(c.bloc_n_delta)}">${pp(c.bloc_n_delta)}</td>
+      </tr>`;
+    }).join("")}
+    </tbody></table></div>
+    ${d.cities.filter(c => !c.reported).length ? `<p class="sub muted">טרם דיווחו: ${d.cities.filter(c => !c.reported).map(c => c.name).join("، ")}</p>` : ""}`;
+}
+
 function advancedAnalyses() {
   return `<div class="card mt"><h2>ערי מפתח — מגמות מול 2022 <small>הערים הגדולות שהתוצאה שלהן משפיעה על המדינה כולה</small></h2>${bigCityBellwethers()}</div>
     <div class="grid g-main mt">
@@ -1444,7 +1725,448 @@ function advancedAnalyses() {
     <div class="grid g-main mt">
       <div class="card"><h2>יציבות התחזית <small>סטיית תקן של התחזית לאורך העדכונים האחרונים</small></h2>${projectionStability()}</div>
       <div class="card"><h2>יישובים חריגים <small>מגמת גוש &gt; 2σ מהממוצע המגזרי</small></h2>${sectorOutliers()}</div>
+    </div>
+    <div class="grid g-main mt">
+      <div class="card" id="wastedCard"><h2>קולות אבודים <small>רשימות מתחת לאחוז החסימה</small></h2><div class="empty">טוען…</div></div>
+      <div class="card" id="momentumCard"><h2>מומנטום רשימות <small>קצב שינוי האחוז לאורך הספירה</small></h2><div class="empty">טוען…</div></div>
+    </div>
+    <div class="grid g-main mt">
+      <div class="card" id="elasticityCard"><h2>רגישות מנדטים <small>כמה מנדטים ישתנו עם שינוי של 1% ארצי</small></h2><div class="empty">טוען…</div></div>
+      <div class="card" id="montecarloCard"><h2>סימולציית מונטה קרלו <small>טווח ביטחון למנדטים לפי אי-וודאות הספירה</small></h2><div class="empty">טוען…</div></div>
+    </div>
+    <div class="card mt" id="tippingCard"><h2>יישובי ציר — נקודות מפנה <small>יישובים שתנועה קטנה בהם תשנה את תוצאת המנדטים</small></h2><div class="empty">טוען…</div></div>
+    <div class="grid g-main mt">
+      <div class="card" id="gradientCard"><h2>פרופיל עירוני/כפרי <small>קורלציה בין גודל יישוב לתמיכה בכל רשימה</small></h2><div class="empty">טוען…</div></div>
+      <div class="card" id="benfordCard"><h2>חוק בנפורד <small>בדיקת אחידות של ספרות ראשונות בתוצאות</small></h2><div class="empty">טוען…</div></div>
+    </div>
+    <div class="card mt" id="bigcitiesCard"><h2>הערים הגדולות — ניתוח מעמיק <small>20 הערים הגדולות: תחזית לפי משפחה פוליטית</small></h2><div class="empty">טוען…</div></div>
+    <div class="card mt" id="insights2Card"><h2>תובנות אוטומטיות <small>ניתוח חי — עובדות מרכזיות שהמספרים מספרים</small></h2><div class="empty">טוען…</div></div>
+    <div class="card mt" id="coalitionCard"><h2>מסלולי קואליציה <small>כל הצירופים שמגיעים ל-61 מנדטים</small></h2><div class="empty">טוען…</div></div>
+    <div class="grid g-main mt">
+      <div class="card" id="blocshiftCard"><h2>שינוי פנים-גושי <small>כיצד מתחלקים הקולות בתוך כל גוש לעומת 2022</small></h2><div class="empty">טוען…</div></div>
+      <div class="card" id="swingdecompCard"><h2>פירוק הנדנוד <small>כמה מהנדנוד נובע מהצבעה לעומת כמה מהגעה לקלפי</small></h2><div class="empty">טוען…</div></div>
+    </div>
+    <div class="grid g-main mt">
+      <div class="card" id="geoconcCard"><h2>ריכוז גאוגרפי <small>כמה כל רשימה מרוכזת ביישובים ספציפיים</small></h2><div class="empty">טוען…</div></div>
+      <div class="card" id="seateffCard"><h2>יעילות מנדטים <small>קולות למנדט — מי מנצל הכי טוב</small></h2><div class="empty">טוען…</div></div>
+    </div>
+    <div class="card mt" id="cascadeCard"><h2>אפקט דומינו <small>מה קורה אם רשימה קרובה לחסימה נכנסת/יוצאת</small></h2><div class="empty">טוען…</div></div>
+    <div class="grid g-main mt">
+      <div class="card" id="nowcastCard"><h2>תחזית הצבעה סופית <small>חישוב מבוסס-נתונים עד כמה יצביעו בסוף</small></h2><div class="empty">טוען…</div></div>
+      <div class="card" id="envelopesCard"><h2>מעטפות חיצוניות <small>חיילים, דיפלומטים, בתי חולים — כיצד הצביעו</small></h2><div class="empty">טוען…</div></div>
+    </div>
+    <div class="grid g-main mt">
+      <div class="card" id="comovementCard"><h2>תנועה משותפת <small>אילו זוגות רשימות מתחרות על אותם מצביעים</small></h2><div class="empty">טוען…</div></div>
+      <div class="card" id="lastseatCard"><h2>מירוץ המנדט האחרון <small>אילו רשימות מתחרות על המנדט האחרון בבדר-עופר</small></h2><div class="empty">טוען…</div></div>
+    </div>
+    <div class="grid g-main mt">
+      <div class="card" id="newvotersCard"><h2>מצביעים חדשים <small>יישובים עם הגדילה הגדולה ביותר בבעלי זכות בחירה</small></h2><div class="empty">טוען…</div></div>
+      <div class="card" id="paceCard"><h2>קצב הדיווח <small>כמה מהיר כל מגזר מדווח</small></h2><div class="empty">טוען…</div></div>
+    </div>
+    <div class="card mt" id="threshsensCard"><h2>רגישות אחוז החסימה <small>כמה מנדטים ישתנו אם הסף יהיה שונה</small></h2><div class="empty">טוען…</div></div>
+    <div class="grid g-main mt">
+      <div class="card" id="familyflowsCard"><h2>נהירת מצביעים <small>הערכה: מאיזה משפחה הלכו לאן</small></h2><div class="empty">טוען…</div></div>
+      <div class="card" id="bellwetherCard"><h2>ישובי הנבואה <small>הישובים שתמיד חוזים נכון</small></h2><div class="empty">טוען…</div></div>
+    </div>
+    <div class="grid g-main mt">
+      <div class="card" id="extremesCard"><h2>חוזקות וחולשות <small>הערים הכי חזקות והכי חלשות לכל רשימה</small></h2><div class="empty">טוען…</div></div>
+      <div class="card" id="sectordeepCard"><h2>השוואת מגזרים מעמיקה <small>כל מגזר: הצבעה, גושים, שינוי מ-2022</small></h2><div class="empty">טוען…</div></div>
+    </div>
+    <div class="grid g-main mt">
+      <div class="card" id="projtackCard"><h2>דיוק התחזית לאורך הספירה <small>האם הקיבועים מתכנסים</small></h2><div class="empty">טוען…</div></div>
+      <div class="card" id="surplusCard"><h2>אופטימיזציית עודפים <small>איזה הסכם עודפים ייתן הכי הרבה מנדטים לכל גוש</small></h2><div class="empty">טוען…</div></div>
     </div>`;
+}
+
+// ── 20 NEW ANALYTICS RENDERERS ───────────────────────────────────────────────
+
+function insights2Html(d) {
+  if (!d || !d.items || !d.items.length) return `<h2>תובנות אוטומטיות</h2><p class="muted">אין עדיין מספיק נתונים לתובנות.</p>`;
+  const impCls = { high: "bad", medium: "warn", low: "ok" };
+  const impHe = { high: "גבוהה", medium: "בינונית", low: "נמוכה" };
+  return `<h2>תובנות אוטומטיות <small>${d.items.length} תובנות חיות</small></h2>
+  <div style="display:flex;flex-direction:column;gap:10px">
+    ${d.items.map(item => `
+      <div style="border-right:4px solid ${item.importance === "high" ? "var(--neg)" : item.importance === "medium" ? "#f59e0b" : "var(--pos)"};padding:8px 12px;background:var(--bg2);border-radius:0 6px 6px 0">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+          <span class="tag ${impCls[item.importance] || "ok"}">${impHe[item.importance] || item.importance}</span>
+          ${item.category ? `<span class="tag" style="background:var(--bg3)">${esc(item.category)}</span>` : ""}
+        </div>
+        <div style="font-size:1.02em">${esc(item.text)}</div>
+        ${item.detail ? `<div class="muted sub" style="margin-top:3px">${esc(item.detail)}</div>` : ""}
+      </div>`).join("")}
+  </div>`;
+}
+
+function coalitionHtml(d) {
+  if (!d || !d.combinations || !d.combinations.length) return `<h2>מסלולי קואליציה</h2><p class="muted">אין עדיין מספיק נתונים למסלולים.</p>`;
+  const viable = d.combinations.filter(c => c.seats >= 61);
+  const close = d.combinations.filter(c => c.seats >= 55 && c.seats < 61).slice(0, 4);
+  return `<h2>מסלולי קואליציה <small>${viable.length} צירופים מגיעים ל-61 | ${d.combinations.length} נבדקו</small></h2>
+  <div class="grid g-3 mt" style="margin-bottom:14px">
+    ${viable.slice(0, 6).map(c => `
+      <div class="card" style="padding:10px;border:2px solid var(--pos)">
+        <div style="font-weight:700;font-size:1.1em;color:var(--pos)">${c.seats} מנד׳</div>
+        <div class="sub" style="margin:4px 0">${c.blocs.map(b => `<span class="tag" style="background:${blocColor(b)};color:#fff;margin:1px">${esc(blocName(b))}</span>`).join("")}</div>
+        <div class="muted sub">עודף: ${c.seats - 61}+</div>
+      </div>`).join("")}
+  </div>
+  ${close.length ? `<div style="margin-top:8px"><div class="sub muted" style="margin-bottom:6px">קרובים ל-61:</div>
+  ${close.map(c => `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+    ${c.blocs.map(b => `<span class="tag" style="background:${blocColor(b)};color:#fff">${esc(blocName(b))}</span>`).join("")}
+    <b>${c.seats}</b> <span class="muted">— חסרים ${61 - c.seats}</span>
+  </div>`).join("")}</div>` : ""}`;
+}
+
+function blocshiftHtml(d) {
+  if (!d || !d.blocs || !Object.keys(d.blocs).length) return `<h2>שינוי פנים-גושי</h2><p class="muted">אין עדיין מספיק נתונים.</p>`;
+  const blocs = Object.entries(d.blocs).filter(([b]) => b !== "X");
+  return `<h2>שינוי פנים-גושי <small>כיצד מתחלק כל גוש מבפנים לעומת 2022</small></h2>
+  ${blocs.map(([bloc, parties]) => `
+    <div style="margin-bottom:14px">
+      <div style="font-weight:700;margin-bottom:6px"><span class="sw" style="background:${blocColor(bloc)}"></span>${esc(blocName(bloc))}</div>
+      <table style="width:100%"><thead><tr><th>רשימה</th><th class="n">נתח גושי</th><th class="n">2022</th><th class="n">Δ</th><th style="min-width:100px"></th></tr></thead><tbody>
+        ${(parties || []).map(p => `<tr class="click" onclick="goParty(${js(p.letter)})">
+          <td>${letterBadge(p)} ${esc(p.short_he)}</td>
+          <td class="n"><b>${pc(p.intra_share, 1)}</b></td>
+          <td class="n muted">${pc(p.intra_share_base, 1)}</td>
+          <td class="n ${cls(p.delta)}">${pp(p.delta)}</td>
+          <td style="padding:4px 8px">${divBar(p.delta, 0.15)}</td>
+        </tr>`).join("")}
+      </tbody></table>
+    </div>`).join("")}`;
+}
+
+function geoconcHtml(d) {
+  if (!d || !d.parties || !d.parties.length) return `<h2>ריכוז גאוגרפי</h2><p class="muted">אין עדיין מספיק נתונים.</p>`;
+  const levelHe = { concentrated: "מרוכז מאוד", moderate: "בינוני", spread: "מפוזר" };
+  const levelCls = { concentrated: "warn", moderate: "", spread: "ok" };
+  return `<h2>ריכוז גאוגרפי <small>HHI — 1.0 = יישוב אחד בלבד, 0 = פיזור שווה</small></h2>
+  <table><thead><tr><th>רשימה</th><th class="n">HHI</th><th>ריכוז</th><th>3 ערים חזקות</th></tr></thead><tbody>
+    ${d.parties.map(p => `<tr class="click" onclick="goParty(${js(p.letter)})">
+      <td>${letterBadge(p)} ${esc(p.short_he)}</td>
+      <td class="n"><b>${(p.hhi || 0).toFixed(4)}</b></td>
+      <td><span class="tag ${levelCls[p.level] || ""}">${levelHe[p.level] || esc(p.level)}</span></td>
+      <td class="muted sub">${(p.top_cities || []).map(c => esc(c.name)).join("، ")}</td>
+    </tr>`).join("")}
+  </tbody></table>`;
+}
+
+function seateffHtml(d) {
+  if (!d || !d.parties || !d.parties.length) return `<h2>יעילות מנדטים</h2><p class="muted">אין עדיין מספיק נתונים.</p>`;
+  const maxVps = Math.max(...d.parties.map(p => p.votes_per_seat || 1));
+  return `<h2>יעילות מנדטים <small>קולות לכל מנדט — פחות = יעיל יותר בבדר-עופר</small></h2>
+  <table><thead><tr><th>#</th><th>רשימה</th><th class="n">מנד׳</th><th class="n">קולות / מנד׳</th><th style="min-width:120px">יעילות</th></tr></thead><tbody>
+    ${d.parties.map((p, i) => `<tr class="click" onclick="goParty(${js(p.letter)})">
+      <td class="muted">${i + 1}</td>
+      <td>${letterBadge(p)} ${esc(p.short_he)}</td>
+      <td class="n"><b>${p.seats}</b></td>
+      <td class="n">${nf(Math.round(p.votes_per_seat || 0))}</td>
+      <td style="padding:4px 8px">
+        <div style="height:10px;border-radius:5px;background:${pColor(p)};width:${((1 - (p.votes_per_seat || 0) / maxVps) * 100).toFixed(1)}%;min-width:4px;opacity:0.8"></div>
+      </td>
+    </tr>`).join("")}
+  </tbody></table>`;
+}
+
+function cascadeHtml(d) {
+  if (!d || !d.scenarios || !d.scenarios.length) return `<h2>אפקט דומינו</h2><p class="muted">אין רשימות קרובות מספיק לאחוז החסימה לסימולציה.</p>`;
+  return `<h2>אפקט דומינו <small>השפעת כניסה/יציאה של רשימות קרובות לחסימה</small></h2>
+  <table><thead><tr><th>רשימה</th><th class="n">אחוז</th><th class="n">מנד׳ בסיס</th><th>תרחיש</th><th class="n">גוש נ׳ Δ</th><th class="n">גוש א׳ Δ</th></tr></thead><tbody>
+    ${d.scenarios.map(s => `<tr>
+      <td>${letterBadge(s)} ${esc(s.short_he)}</td>
+      <td class="n ${(s.pct || 0) >= 0.0325 ? "ok" : "warn"}">${pc(s.pct, 2)}</td>
+      <td class="n">${s.seats_base}</td>
+      <td><span class="tag ${s.type === "drops" ? "bad" : "ok"}">${s.type === "drops" ? "יורדת" : "נכנסת"}</span></td>
+      <td class="n ${cls(s.n_delta)}">${(s.n_delta || 0) >= 0 ? "+" : ""}${s.n_delta || 0}</td>
+      <td class="n ${cls(s.a_delta)}">${(s.a_delta || 0) >= 0 ? "+" : ""}${s.a_delta || 0}</td>
+    </tr>`).join("")}
+  </tbody></table>
+  ${d.note ? `<p class="muted sub" style="margin-top:8px">${esc(d.note)}</p>` : ""}`;
+}
+
+function nowcastHtml(d) {
+  if (!d || d.expected_turnout == null) return `<h2>תחזית הצבעה סופית</h2><p class="muted">אין עדיין מספיק נתונים לחישוב.</p>`;
+  const pct = (d.expected_turnout * 100).toFixed(1);
+  const cur = ((d.current_turnout || 0) * 100).toFixed(1);
+  return `<h2>תחזית הצבעה סופית <small>הערכה מבוססת מגמה עם ${Math.round((d.reported_frac || 0) * 100)}% נספר</small></h2>
+  <div class="grid g-kpi" style="margin-bottom:14px">
+    ${kpi("תחזית סופית", pct + "%", d.confidence ? "ביטחון: " + d.confidence : "")}
+    ${kpi("הצבעה כעת", cur + "%", Math.round((d.reported_frac || 0) * 100) + "% יישובים נספרו")}
+    ${kpi("הצבעה 2022", d.base_turnout != null ? (d.base_turnout * 100).toFixed(1) + "%" : "–", d.delta_vs_base != null ? (d.delta_vs_base >= 0 ? "+" : "") + (d.delta_vs_base * 100).toFixed(1) + "% לעומת 2022" : "")}
+  </div>
+  <div style="height:16px;border-radius:8px;overflow:hidden;background:var(--border);position:relative;margin-bottom:8px" dir="ltr">
+    <div style="position:absolute;left:0;top:0;height:100%;width:${Math.min(100, +cur)}%;background:var(--accent);transition:width .5s"></div>
+    <div style="position:absolute;left:${Math.min(99, +pct)}%;top:-2px;width:3px;height:calc(100% + 4px);background:var(--pos);opacity:.9"></div>
+  </div>
+  <div class="sub muted">כחול = בפועל | ירוק = תחזית</div>`;
+}
+
+function comovementHtml(d) {
+  if (!d || (!d.allied && !d.competing)) return `<h2>תנועה משותפת</h2><p class="muted">אין עדיין מספיק נתונים.</p>`;
+  const pairRow = (p, positive) => {
+    const ap = { letter: p.a_letter, short_he: p.a_he, bloc: p.a_bloc, family: p.a_family };
+    const bp = { letter: p.b_letter, short_he: p.b_he, bloc: p.b_bloc, family: p.b_family };
+    return `<tr>
+      <td>${letterBadge(ap)} ${esc(p.a_he)}</td>
+      <td style="padding:0 6px;color:var(--muted)">↔</td>
+      <td>${letterBadge(bp)} ${esc(p.b_he)}</td>
+      <td class="n ${positive ? "ok" : "down"}"><b>${(p.corr || 0) >= 0 ? "+" : ""}${(p.corr || 0).toFixed(2)}</b></td>
+      <td><span class="tag ${positive ? "ok" : "bad"}">${positive ? "שיתוף" : "תחרות"}</span></td>
+    </tr>`;
+  };
+  return `<h2>תנועה משותפת <small>r = קורלציה בין שינויי אחוז על פני יישובים</small></h2>
+  <div class="grid g-main">
+    <div>
+      <div style="font-weight:600;color:var(--pos);margin-bottom:6px">מתחזקים יחד (אותה אוכלוסייה)</div>
+      <table><tbody>${(d.allied || []).slice(0, 5).map(p => pairRow(p, true)).join("")}</tbody></table>
+    </div>
+    <div>
+      <div style="font-weight:600;color:var(--neg);margin-bottom:6px">מתחרים (מצביעים עוברים ביניהם)</div>
+      <table><tbody>${(d.competing || []).slice(0, 5).map(p => pairRow(p, false)).join("")}</tbody></table>
+    </div>
+  </div>`;
+}
+
+function envelopesHtml(d) {
+  if (!d || !d.reported) return `<h2>מעטפות חיצוניות</h2><p class="muted">מעטפות חיצוניות טרם דיווחו.</p>`;
+  return `<h2>מעטפות חיצוניות <small>${nf(d.valid)} קולות כשרים · ${nf(d.voters)} מצביעים</small></h2>
+  <table><thead><tr><th>רשימה</th><th class="n">מעטפות %</th><th class="n">ארצי %</th><th class="n">Δ</th><th>מגמה</th></tr></thead><tbody>
+    ${(d.parties || []).slice(0, 14).map(p => {
+      const diff = (p.env_pct || 0) - (p.nat_pct || 0);
+      return `<tr class="click" onclick="goParty(${js(p.letter)})">
+        <td>${letterBadge(p)} ${esc(p.short_he)}</td>
+        <td class="n"><b>${pc(p.env_pct, 2)}</b></td>
+        <td class="n muted">${pc(p.nat_pct, 2)}</td>
+        <td class="n ${cls(diff)}">${pp(diff)}</td>
+        <td><span class="tag ${Math.abs(diff) > 0.03 ? (diff > 0 ? "ok" : "warn") : ""}">${Math.abs(diff) > 0.03 ? (diff > 0 ? "חזקה במעטפות" : "חלשה במעטפות") : "דומה"}</span></td>
+      </tr>`;
+    }).join("")}
+  </tbody></table>`;
+}
+
+function lastseatHtml(d) {
+  if (!d || !d.races || !d.races.length) return `<h2>מירוץ המנדט האחרון</h2><p class="muted">אין עדיין מספיק נתונים לחישוב.</p>`;
+  return `<h2>מירוץ המנדט האחרון <small>מי מתחרה על המנדטים האחרונים בבדר-עופר</small></h2>
+  <p class="sub muted">בבדר-עופר, מנדטים אחרונים נקבעים בפערים קטנים — כל קול כאן משנה.</p>
+  ${d.races.map(race => `
+    <div style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:10px">
+      <div style="font-weight:700;margin-bottom:6px">מנדט #${race.seat}</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        ${(race.contestants || []).map(c => `
+          <div style="display:flex;align-items:center;gap:4px">
+            ${letterBadge(c)} <span>${esc(c.short_he)}</span>
+            <span class="muted sub">(${nf(Math.round(c.remainder || 0))})</span>
+            ${c.winner ? '<span class="tag ok">מקבל</span>' : ""}
+          </div>`).join(`<span style="color:var(--muted);font-size:1.1em;padding:0 4px">↔</span>`)}
+      </div>
+      ${race.votes_to_flip != null ? `<div class="sub muted" style="margin-top:4px">${nf(Math.round(race.votes_to_flip))} קולות יהפכו תוצאה</div>` : ""}
+    </div>`).join("")}`;
+}
+
+function swingdecompHtml(d) {
+  if (!d || d.total_swing == null) return `<h2>פירוק הנדנוד</h2><p class="muted">אין עדיין מספיק נתונים לפירוק.</p>`;
+  return `<h2>פירוק הנדנוד <small>כמה מהנדנוד לגוש נ׳ נובע מהעדפה לעומת שיעור ההצבעה</small></h2>
+  <div class="grid g-kpi" style="margin-bottom:14px">
+    ${kpi("נדנוד כולל", pp(d.total_swing), "גוש נ׳ לעומת 2022 (יישובים שדיווחו)")}
+    ${kpi("אפקט העדפה", pp(d.preference_effect), "שינוי בחלוקת הקולות")}
+    ${kpi("אפקט הגעה לקלפי", pp(d.turnout_effect), "הצבעה גבוהה/נמוכה מ-2022")}
+  </div>
+  ${d.sectors && d.sectors.length ? `<table><thead><tr><th>מגזר</th><th class="n">נדנוד כולל</th><th class="n">אפקט העדפה</th><th class="n">אפקט הגעה</th></tr></thead><tbody>
+    ${d.sectors.map(s => `<tr>
+      <td>${esc(SECTORS[s.sector] || s.sector)}</td>
+      <td class="n ${cls(s.total)}">${pp(s.total)}</td>
+      <td class="n ${cls(s.preference)}">${pp(s.preference)}</td>
+      <td class="n ${cls(s.turnout_fx)}">${pp(s.turnout_fx)}</td>
+    </tr>`).join("")}
+  </tbody></table>` : ""}`;
+}
+
+function newvotersHtml(d) {
+  if (!d || !d.cities || !d.cities.length) return `<h2>מצביעים חדשים</h2><p class="muted">אין עדיין מספיק נתונים.</p>`;
+  return `<h2>מצביעים חדשים <small>יישובים עם גדילה גדולה בבעלי זכות בחירה מ-2022</small></h2>
+  <table><thead><tr><th>יישוב</th><th class="n">זכאים</th><th class="n">2022</th><th class="n">גדילה</th><th class="n">הצבעה %</th><th>מנצח</th></tr></thead><tbody>
+    ${d.cities.slice(0, 15).map(c => `<tr class="click" onclick="goCity(${c.code})">
+      <td><b>${esc(c.name)}</b></td>
+      <td class="n">${nf(c.eligible)}</td>
+      <td class="n muted">${nf(c.base_eligible)}</td>
+      <td class="n up">+${nf(c.growth || 0)}</td>
+      <td class="n">${c.reported ? pc(c.turnout) : '<span class="muted">–</span>'}</td>
+      <td>${c.winner_he ? esc(c.winner_he) : '<span class="muted">–</span>'}</td>
+    </tr>`).join("")}
+  </tbody></table>`;
+}
+
+function paceHtml(d) {
+  if (!d || !d.sectors || !d.sectors.length) return `<h2>קצב הדיווח</h2><p class="muted">אין עדיין מספיק נתונים.</p>`;
+  return `<h2>קצב הדיווח <small>כמה יישובים מכל מגזר כבר דיווחו</small></h2>
+  <table><thead><tr><th>מגזר</th><th class="n">דיווחו</th><th class="n">סה"כ</th><th class="n">%</th><th style="min-width:160px">התקדמות</th></tr></thead><tbody>
+    ${d.sectors.map(s => `<tr>
+      <td>${esc(SECTORS[s.sector] || s.sector)}</td>
+      <td class="n">${nf(s.reported)}</td>
+      <td class="n muted">${nf(s.total)}</td>
+      <td class="n">${pc(s.reporting_pct)}</td>
+      <td style="padding:4px 8px" dir="ltr">
+        <div style="height:12px;border-radius:6px;background:var(--border);overflow:hidden">
+          <div style="height:100%;background:var(--accent);border-radius:6px;width:${((s.reporting_pct || 0) * 100).toFixed(1)}%;transition:width .5s"></div>
+        </div>
+      </td>
+    </tr>`).join("")}
+  </tbody></table>`;
+}
+
+function threshsensHtml(d) {
+  if (!d || !d.scenarios || !d.scenarios.length) return `<h2>רגישות אחוז החסימה</h2><p class="muted">אין עדיין מספיק נתונים.</p>`;
+  return `<h2>רגישות אחוז החסימה <small>כמה מנדטים לכל גוש בסף שונה</small></h2>
+  <table><thead><tr><th>סף</th><th class="n">מפלגות</th><th class="n">גוש נ׳</th><th class="n">אופוזיציה</th><th class="n">ערבים</th><th class="n">אחרים</th><th>מנצח</th></tr></thead><tbody>
+    ${d.scenarios.map(s => `<tr ${s.is_current ? 'style="font-weight:700;background:var(--bg2)"' : ""}>
+      <td>${(s.threshold * 100).toFixed(2)}%${s.is_current ? ' <span class="tag ok">נוכחי</span>' : ""}</td>
+      <td class="n">${s.qualifying_parties}</td>
+      <td class="n ${s.n_seats >= 61 ? "up" : ""}">${s.n_seats}</td>
+      <td class="n">${s.o_seats}</td>
+      <td class="n">${s.a_seats}</td>
+      <td class="n muted">${s.x_seats}</td>
+      <td><span class="tag ${s.n_seats >= 61 ? "ok" : "warn"}">${s.n_seats >= 61 ? "גוש נ׳" : "לא ברור"}</span></td>
+    </tr>`).join("")}
+  </tbody></table>`;
+}
+
+function familyflowsHtml(d) {
+  if (!d || !d.flows || !d.flows.length) return `<h2>נהירת מצביעים</h2><p class="muted">אין עדיין מספיק נתונים להערכת זרימת קולות.</p>`;
+  const gainers = (d.parties || []).filter(p => (p.net_gain || 0) > 0).slice(0, 5);
+  const losers = (d.parties || []).filter(p => (p.net_gain || 0) < 0).slice(0, 5);
+  return `<h2>נהירת מצביעים <small>הערכה: מאיפה ולאן עברו המצביעים לעומת 2022</small></h2>
+  <div class="grid g-main" style="margin-bottom:12px">
+    <div>
+      <div style="font-weight:600;color:var(--pos);margin-bottom:6px">מרוויחים</div>
+      ${gainers.map(p => `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        ${letterBadge(p)} <span>${esc(p.short_he)}</span>
+        <span class="up">+${nf(Math.abs(Math.round(p.net_gain || 0)))}</span>
+      </div>`).join("")}
+    </div>
+    <div>
+      <div style="font-weight:600;color:var(--neg);margin-bottom:6px">מפסידים</div>
+      ${losers.map(p => `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        ${letterBadge(p)} <span>${esc(p.short_he)}</span>
+        <span class="down">${nf(Math.round(p.net_gain || 0))}</span>
+      </div>`).join("")}
+    </div>
+  </div>
+  <div class="sub muted" style="margin-bottom:8px">זרימות גדולות (הערכה מבוססת שינויי אחוז × קולות)</div>
+  ${d.flows.slice(0, 8).map(f => `<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;font-size:.9em">
+    <span>${esc(f.from_he)}</span>
+    <span style="color:var(--muted)">→</span>
+    <span>${esc(f.to_he)}</span>
+    <span class="muted">~${nf(Math.round(Math.abs(f.estimated_votes || 0)))} קולות</span>
+  </div>`).join("")}`;
+}
+
+function bellwetherHtml(d) {
+  if (!d || !d.cities || !d.cities.length) return `<h2>ישובי הנבואה</h2><p class="muted">אין עדיין מספיק נתונים.</p>`;
+  return `<h2>ישובי הנבואה <small>הישובים שתוצאתם ב-2022 הכי דומה לממוצע הארצי</small></h2>
+  <table><thead><tr><th>#</th><th>יישוב</th><th class="n">הפרש (2022)</th><th class="n">גוש נ׳ כעת</th><th class="n">גוש נ׳ ארצי</th><th>נספר</th></tr></thead><tbody>
+    ${d.cities.slice(0, 15).map((c, i) => `<tr class="click" onclick="goCity(${c.code})">
+      <td class="muted">${i + 1}</td>
+      <td><b>${esc(c.name)}</b><br><span class="muted sub">${esc(SECTORS[c.sector] || c.sector)}</span></td>
+      <td class="n">${pc(c.base_distance, 2)}</td>
+      <td class="n ${c.bloc_n_now != null && d.national_n_now != null ? cls(c.bloc_n_now - d.national_n_now) : ""}">${c.bloc_n_now != null ? pc(c.bloc_n_now) : "–"}</td>
+      <td class="n muted">${d.national_n_now != null ? pc(d.national_n_now) : "–"}</td>
+      <td>${c.reported ? '<span class="tag ok">✓</span>' : '<span class="muted sub">ממתין</span>'}</td>
+    </tr>`).join("")}
+  </tbody></table>`;
+}
+
+function extremesHtml(d) {
+  if (!d || !d.parties || !d.parties.length) return `<h2>חוזקות וחולשות</h2><p class="muted">אין עדיין מספיק נתונים.</p>`;
+  return `<h2>חוזקות וחולשות <small>3 ערים חזקות / 3 ערים חלשות לכל רשימה גדולה</small></h2>
+  ${d.parties.slice(0, 8).map(p => `
+    <div style="margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border)">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;font-weight:600">
+        ${letterBadge(p)} ${esc(p.short_he)}
+        <span class="muted sub">${pc(p.national_pct, 1)} ארצי</span>
+      </div>
+      <div class="grid g-main">
+        <div>
+          <div class="sub muted" style="margin-bottom:4px">💪 חזקות</div>
+          ${(p.top || []).map(c => `<div style="display:flex;gap:6px;margin-bottom:2px;font-size:.88em">
+            <span class="up"><b>${pc(c.share, 1)}</b></span>
+            <span>${esc(c.name)}</span>
+            <span class="muted sub">(${pp(c.delta)})</span>
+          </div>`).join("")}
+        </div>
+        <div>
+          <div class="sub muted" style="margin-bottom:4px">📉 חלשות</div>
+          ${(p.bottom || []).map(c => `<div style="display:flex;gap:6px;margin-bottom:2px;font-size:.88em">
+            <span class="down"><b>${pc(c.share, 1)}</b></span>
+            <span>${esc(c.name)}</span>
+            <span class="muted sub">(${pp(c.delta)})</span>
+          </div>`).join("")}
+        </div>
+      </div>
+    </div>`).join("")}`;
+}
+
+function sectordeepHtml(d) {
+  if (!d || !d.sectors || !d.sectors.length) return `<h2>השוואת מגזרים מעמיקה</h2><p class="muted">אין עדיין מספיק נתונים.</p>`;
+  return `<h2>השוואת מגזרים מעמיקה <small>הצבעה, גושים ושינויים ב-2022 לכל מגזר</small></h2>
+  <div class="scroll"><table><thead><tr>
+    <th>מגזר</th><th class="n">יישובים</th><th class="n">הצבעה</th><th class="n">Δ הצבעה</th>
+    <th class="n">גוש נ׳</th><th class="n">Δ נ׳</th>
+    <th class="n">אופוז׳</th><th class="n">Δ א׳</th>
+    <th class="n">ערבים</th><th class="n">Δ ע׳</th>
+    <th>מפלגה מובילה</th>
+  </tr></thead><tbody>
+    ${d.sectors.map(s => `<tr>
+      <td><b>${esc(SECTORS[s.sector] || s.sector)}</b></td>
+      <td class="n muted">${nf(s.cities_total)}</td>
+      <td class="n">${pc(s.turnout)}</td>
+      <td class="n ${cls(s.turnout_delta)}">${pp(s.turnout_delta)}</td>
+      <td class="n">${pc(s.bloc_n)}</td>
+      <td class="n ${cls(s.bloc_n_delta)}">${pp(s.bloc_n_delta)}</td>
+      <td class="n">${pc(s.bloc_o)}</td>
+      <td class="n ${cls(s.bloc_o_delta)}">${pp(s.bloc_o_delta)}</td>
+      <td class="n">${pc(s.bloc_a)}</td>
+      <td class="n ${cls(s.bloc_a_delta)}">${pp(s.bloc_a_delta)}</td>
+      <td>${s.top_party_he ? esc(s.top_party_he) : "–"}</td>
+    </tr>`).join("")}
+  </tbody></table></div>`;
+}
+
+function projtackHtml(d) {
+  if (!d || !d.tracked_parties || d.tracked_parties.length === 0) return `<h2>דיוק התחזית לאורך הספירה</h2><p class="muted">דרושים לפחות 3 עדכונים לניתוח דיוק (קיימים ${d && d.snapshot_count || 0}).</p>`;
+  return `<h2>דיוק התחזית לאורך הספירה <small>האם הקיבועים מתכנסים · ${d.snapshot_count || 0} עדכונים</small></h2>
+  <table><thead><tr><th>רשימה</th><th class="n">מנד׳ כעת</th><th class="n">תחזית ראשונה</th><th class="n">תחזית אחרונה</th><th class="n">שונות</th><th>מגמה</th></tr></thead><tbody>
+    ${d.tracked_parties.map(p => {
+      const col = pColor(p);
+      return `<tr class="click" onclick="goParty(${js(p.letter)})">
+        <td>${letterBadge(p)} ${esc(p.short_he)}</td>
+        <td class="n"><b>${p.seats_now}</b></td>
+        <td class="n muted">${p.first_proj != null ? p.first_proj.toFixed(1) : "–"}</td>
+        <td class="n">${p.last_proj != null ? p.last_proj.toFixed(1) : "–"}</td>
+        <td class="n muted">${p.variance != null ? p.variance.toFixed(2) : "–"}</td>
+        <td style="padding:4px 8px">${sparkline(p.proj_series || [], col, 90, 22)}</td>
+      </tr>`;
+    }).join("")}
+  </tbody></table>`;
+}
+
+function surplusHtml(d) {
+  if (!d || !d.pairs || !d.pairs.length) return `<h2>אופטימיזציית עודפים</h2><p class="muted">אין עדיין מספיק נתונים לחישוב עודפים.</p>`;
+  const best = d.pairs[0];
+  return `<h2>אופטימיזציית עודפים <small>הסכמי עודפים — מי מרוויח מה</small></h2>
+  ${best ? `<div style="background:var(--bg2);border-radius:8px;padding:10px;margin-bottom:12px">
+    <div class="sub muted" style="margin-bottom:4px">הצמד הטוב ביותר לגוש נ׳:</div>
+    <div style="font-size:1.1em;font-weight:700">${letterBadge(best.a)} ${esc(best.a_he)} + ${letterBadge(best.b)} ${esc(best.b_he)}</div>
+    <div style="margin-top:4px">חיסכון: <b class="up">+${best.gained_seats || 0} מנד׳</b></div>
+  </div>` : ""}
+  <div class="scroll"><table><thead><tr><th>צמד</th><th class="n">ללא הסכם</th><th class="n">עם הסכם</th><th class="n">רווח</th></tr></thead><tbody>
+    ${d.pairs.slice(0, 10).map(p => `<tr>
+      <td>${letterBadge(p.a)} ${esc(p.a_he)} + ${letterBadge(p.b)} ${esc(p.b_he)}</td>
+      <td class="n">${p.seats_without}</td>
+      <td class="n up"><b>${p.seats_with}</b></td>
+      <td class="n up">+${p.gained_seats || 0}</td>
+    </tr>`).join("")}
+  </tbody></table></div>`;
 }
 
 // ---------- FEED
