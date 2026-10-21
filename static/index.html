@@ -190,6 +190,10 @@ svg.hemicycle text { transition: fill .4s var(--ease); }
 .results { animation: resultsIn .22s var(--ease-out) both; transform-origin: top; }
 @keyframes resultsIn { from { opacity: 0; transform: translateY(-4px) scale(.98); } to { opacity: 1; transform: none; } }
 
+/* FLIP: elements that reorder (party rows, bloc cards, city rows) animate smoothly between positions */
+[data-flip] { will-change: transform; }
+tr[data-flip] { position: relative; }    /* z-index needs a positioned element */
+
 /* "new" locality flash (already defined — tune color + duration) */
 .flash { animation: flash 2.4s var(--ease-out) both; }
 @keyframes flash { 0% { background: color-mix(in srgb, var(--warn) 42%, transparent); } 60% { background: color-mix(in srgb, var(--warn) 10%, transparent); } 100% { background: transparent; } }
@@ -461,23 +465,71 @@ function withVT(fn) {
   if (!document.startViewTransition || document.visibilityState !== "visible") { fn(); return; }
   try { document.startViewTransition(fn); } catch (e) { fn(); }
 }
-function tickKpis() {
-  // pulse values that changed since the previous render — compared by data-key
-  const map = tickKpis._prev || (tickKpis._prev = new Map());
-  $$(".kpi .val[data-key]").forEach(el => {
-    const k = el.dataset.key, v = el.textContent.trim();
-    if (map.has(k) && map.get(k) !== v) {
-      el.classList.remove("tick"); void el.offsetWidth; el.classList.add("tick");
-      setTimeout(() => el.classList.remove("tick"), 650);
+// ---------- FLIP + number tween helpers (make reorderings and value changes visibly smooth)
+const kpiPrev = new Map();      // data-key → last rendered textContent
+const flipPrev = new Map();     // data-flip id → DOMRect from before mutation
+function captureFlip(root) {
+  flipPrev.clear();
+  if (!root) return;
+  root.querySelectorAll("[data-flip]").forEach(el => flipPrev.set(el.dataset.flip, el.getBoundingClientRect()));
+}
+function playFlip(root) {
+  if (!root || !flipPrev.size) return;
+  const prefersReduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (prefersReduce) { flipPrev.clear(); return; }
+  root.querySelectorAll("[data-flip]").forEach(el => {
+    const b = flipPrev.get(el.dataset.flip);
+    if (!b) {
+      // new element: subtle fade-in
+      el.animate([{ opacity: 0, transform: "translateY(4px)" }, { opacity: 1, transform: "none" }],
+                 { duration: 320, easing: "cubic-bezier(.16,1,.3,1)" });
+      return;
     }
-    map.set(k, v);
+    const a = el.getBoundingClientRect();
+    const dx = b.left - a.left, dy = b.top - a.top;
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;  // unchanged
+    el.animate(
+      [{ transform: `translate(${dx}px, ${dy}px)`, zIndex: 2 }, { transform: "none", zIndex: 2 }],
+      { duration: 520, easing: "cubic-bezier(.4,0,.2,1)", fill: "both" });
+  });
+  flipPrev.clear();
+}
+function tweenKpis() {
+  // Count up/down inside each .kpi .val for numeric changes, plus the pulse class on change.
+  $$(".kpi .val[data-key]").forEach(el => {
+    const k = el.dataset.key, now = el.textContent.trim(), was = kpiPrev.get(k);
+    kpiPrev.set(k, now);
+    if (was == null || was === now) return;
+    el.classList.remove("tick"); void el.offsetWidth; el.classList.add("tick");
+    setTimeout(() => el.classList.remove("tick"), 650);
+    // skip count-up tween for KPIs whose value includes inline markup (e.g. "<b>31</b> מנדטים"),
+    // we'd clobber the structure if we rewrote textContent each frame
+    if (el.children.length) return;
+    const nMatch = now.match(/-?[\d,.]+/), wMatch = was.match(/-?[\d,.]+/);
+    if (!nMatch || !wMatch) return;
+    const nNum = Number(nMatch[0].replace(/,/g, "")), wNum = Number(wMatch[0].replace(/,/g, ""));
+    if (!isFinite(nNum) || !isFinite(wNum) || nNum === wNum) return;
+    const i = now.indexOf(nMatch[0]), prefix = now.slice(0, i), suffix = now.slice(i + nMatch[0].length);
+    const decIn = (nMatch[0].split(".")[1] || "").length;
+    const isFloat = decIn > 0 || suffix.includes("%");
+    const dur = 650, t0 = performance.now();
+    (function step(t) {
+      const p = Math.min(1, (t - t0) / dur);
+      const e = 1 - Math.pow(1 - p, 3);
+      const v = wNum + (nNum - wNum) * e;
+      const s = isFloat ? v.toFixed(decIn || 1) : Math.round(v).toLocaleString("he-IL");
+      el.textContent = prefix + s + suffix;
+      if (p < 1) requestAnimationFrame(step); else el.textContent = now;
+    })(t0);
   });
 }
 function renderInto(fn) {
-  // Replace the view with new HTML in one synchronous mutation. innerHTML inside
-  // a single JS tick does not paint a blank frame — the browser only commits once.
+  // Capture positions of flip-tracked rows BEFORE the mutation, swap innerHTML in one sync tick,
+  // then play the FLIP inversion so rows that moved appear to slide, not teleport.
+  const view = $("#view");
+  captureFlip(view);
   fn();
-  requestAnimationFrame(tickKpis);
+  requestAnimationFrame(() => { playFlip(view); tweenKpis(); });
 }
 function route(isUpdate) {
   const parts = (location.hash.replace(/^#\/?/, "") || "overview").split("/").map(decodeURIComponent);
@@ -563,7 +615,7 @@ function renderOverview() {
     </div>
     <div class="card">
       <h2>גושים <small>כעת מול אותם יישובים ב-2022</small></h2>
-      ${S.blocs.map(x => `<div style="margin:12px 0">
+      ${S.blocs.map(x => `<div data-flip="bloc-${esc(x.key)}" style="margin:12px 0">
         <div style="display:flex;justify-content:space-between;gap:8px"><span><span class="sw" style="background:${blocColor(x.key)}"></span><b>${esc(blocName(x.key))}</b></span>
         <span class="nowrap"><b>${pc(x.pct)}</b> · ${x.seats} מנד׳ <span class="${cls(x.swing)}">(${pp(x.swing)})</span></span></div>
         ${shareBar(x.pct, 0.6, blocColor(x.key))}<div style="opacity:.4;margin-top:3px">${shareBar(x.lfl_base_pct, 0.6, blocColor(x.key))}</div></div>`).join("")}
@@ -574,7 +626,7 @@ function renderOverview() {
     <h2>תוצאות לפי רשימה <small>הקו האנכי = אחוז החסימה · לחצו לפרטים</small><span class="tools"><a class="btn" href="#/parties">כל הרשימות ←</a></span></h2>
     <table><thead><tr><th>רשימה</th><th style="width:36%"></th><th class="n">אחוז</th><th class="n">קולות</th><th class="n">מנדטים</th><th class="n">תחזית</th><th class="n">שינוי מ-2022</th></tr></thead><tbody>
     ${top.map(p => { const fam = S.families.find(f => f.key === p.family); const d = p.base_family_pct != null && fam ? fam.swing : null;
-      return `<tr class="click" onclick="goParty(${js(p.letter)})"><td>${letterBadge(p)} <b>${esc(p.short_he)}</b>${p.passes ? "" : ' <span class="tag bad">מתחת לחסימה</span>'}</td>
+      return `<tr class="click" data-flip="party-${esc(p.letter)}" onclick="goParty(${js(p.letter)})"><td>${letterBadge(p)} <b>${esc(p.short_he)}</b>${p.passes ? "" : ' <span class="tag bad">מתחת לחסימה</span>'}</td>
       <td>${shareBar(p.pct, max, pColor(p), S.meta.threshold)}</td><td class="n"><b>${pc(p.pct, 2)}</b></td><td class="n">${nf(p.votes)}</td>
       <td class="n"><b>${p.seats}</b></td><td class="n">${p.proj_seats ?? "–"}</td><td class="n ${cls(d)}">${d == null ? '<span class="muted">–</span>' : pp(d)}</td></tr>`; }).join("")}
     </tbody></table>
@@ -607,7 +659,7 @@ function cityTable(rows, sortable) {
   return `<table><thead><tr>${H("name", "יישוב")}${H("sector", "מגזר")}${H("reporting", "נספר", 1)}${H("base_eligible", "בעלי זכות", 1)}${H("turnout", "הצבעה", 1)}${H("base_turnout", "2022", 1)}${H("turnout_delta", "שינוי", 1)}
     <th>מובילה כעת</th><th>מובילה ב-2022</th><th class="n">גוש נ׳</th>${H("swingN", "שינוי", 1)}<th class="n">אופ׳</th>${H("swingO", "שינוי", 1)}<th class="n">ערביות</th>${H("swingA", "שינוי", 1)}</tr></thead><tbody>
     ${rows.map(c => { const w = c.winner ? party(c.winner) : null, bw = c.base_winner ? bparty(c.base_winner) : null;
-      return `<tr class="click${newCodes.has(c.code) ? " flash" : ""}" onclick="goCity(${c.code})"><td><b>${esc(c.name)}</b>${c.flipped ? ' <span class="tag warn">החליף מובילה</span>' : ""}</td><td class="muted">${SECTORS[c.sector] || c.sector}</td>
+      return `<tr class="click${newCodes.has(c.code) ? " flash" : ""}" data-flip="city-${c.code}" onclick="goCity(${c.code})"><td><b>${esc(c.name)}</b>${c.flipped ? ' <span class="tag warn">החליף מובילה</span>' : ""}</td><td class="muted">${SECTORS[c.sector] || c.sector}</td>
       <td class="n">${c.valid ? pc(c.reporting, 0) : '<span class="muted">טרם</span>'}</td><td class="n">${nf(c.base_eligible)}</td><td class="n">${pc(c.turnout)}</td><td class="n muted">${pc(c.base_turnout)}</td><td class="n ${cls(c.turnout_delta)}">${pp(c.turnout_delta)}</td>
       <td>${w ? `<span class="sw" style="background:${pColor(w)}"></span>${esc(w.short_he)} ${pc(c.winner_pct, 0)}` : ""}</td>
       <td class="muted">${bw ? `<span class="sw" style="background:${pColor(bw)}"></span>${esc(bw.short_he)} ${pc(c.base_winner_pct, 0)}` : ""}</td>
@@ -629,7 +681,7 @@ function renderParties() {
     <div class="scroll"><table><thead><tr><th>רשימה</th><th>גוש</th>${H("votes", "קולות")}${H("pct", "אחוז")}<th></th>${H("seats", "מנדטים")}${H("proj_pct", "תחזית %")}${H("proj_seats", "תחזית מנד׳")}${H("base_family_pct", "2022 (משפחה)")}<th class="n">שינוי</th><th>מצב</th></tr></thead><tbody>
     ${rows.map(p => { const fam = S.families.find(f => f.key === p.family); const sw = p.base_family_pct != null && fam ? fam.swing : null;
       const flag = p.assumed ? ' <span class="tag" data-tip="לא מוגדרת בהגדרות: הגוש והמשפחה הועתקו מאותה אות בבחירות הקודמות">לפי אות</span>' : p.unclassified ? ' <span class="tag" data-tip="אות חדשה – ניתן לסווג ב-config.json">לא מסווגת</span>' : "";
-      return `<tr class="click" onclick="goParty(${js(p.letter)})"><td>${letterBadge(p)} <b>${esc(p.short_he)}</b>${flag}<div class="sub">${esc(p.he)}</div></td>
+      return `<tr class="click" data-flip="party-${esc(p.letter)}" onclick="goParty(${js(p.letter)})"><td>${letterBadge(p)} <b>${esc(p.short_he)}</b>${flag}<div class="sub">${esc(p.he)}</div></td>
       <td><span class="sw" style="background:${blocColor(p.bloc)}"></span>${esc(blocName(p.bloc))}</td><td class="n">${nf(p.votes)}</td><td class="n"><b>${pc(p.pct, 2)}</b></td>
       <td style="min-width:120px">${shareBar(p.pct, max, pColor(p), S.meta.threshold)}</td><td class="n"><b>${p.seats}</b></td><td class="n">${pc(p.proj_pct, 2)}</td><td class="n">${p.proj_seats ?? "–"}</td>
       <td class="n">${pc(p.base_family_pct)}</td><td class="n ${cls(sw)}">${pp(sw)}</td>
