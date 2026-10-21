@@ -264,6 +264,7 @@ main { view-transition-name: dash-main; }
       <a href="#/sectors" data-tab="sectors">מגזרים</a>
       <a href="#/coalition" data-tab="coalition">מנדטים וקואליציה</a>
       <a href="#/timeline" data-tab="timeline">לאורך הספירה</a>
+      <a href="#/analytics" data-tab="analytics">ניתוח</a>
       <a href="#/feed" data-tab="feed">מקור הנתונים</a>
     </nav>
   </div>
@@ -293,7 +294,27 @@ const js = s => esc(JSON.stringify(String(s)));  // safe JS string literal insid
 function party(l) { return (CFG && CFG.current[l]) || { letter: l, short_he: l, he: l, bloc: "X", family: "other" }; }
 function bparty(l) { return (CFG && CFG.baseline[l]) || { letter: l, short_he: l, he: l, bloc: "X", family: "other" }; }
 function famColor(f) { return (CFG && CFG.families[f] && CFG.families[f].color) || "#9ca3af"; }
-function pColor(p) { return famColor(p.family); }
+// Distinct, politically-sensible palette so no two parties share a shade. Falls back
+// to the family color for unclassified / rare letters.
+const PARTY_COLORS = {
+  "מחל": "#1f6fdc",   // Likud — classic blue
+  "פה": "#d64283",    // Yesh Atid — party pink
+  "ט": "#6b3fb0",     // Religious Zionism — deep purple
+  "כן": "#17a3b4",    // National Unity — turquoise
+  "שס": "#e5a825",    // Shas — gold
+  "ג": "#1f1f1f",     // UTJ — black (traditional)
+  "עם": "#2ca25f",    // Ra'am — green
+  "ל": "#b4479e",     // Yisrael Beiteinu — magenta
+  "אמת": "#c21f1f",   // Labor — red (classic)
+  "מרצ": "#e8792d",   // Meretz — orange
+  "ום": "#4a8c3b",    // Hadash–Ta'al — olive
+  "ד": "#0b6e8a",     // Balad — teal
+  "ב": "#8c5a2a",     // Jewish Home — brown
+  "קץ": "#9f7aea",    // Noam / small — soft purple
+  "יז": "#64748b",    // small — slate
+  "אצ": "#78716c",    // small — stone
+};
+function pColor(p) { return (p && PARTY_COLORS[p.letter]) || famColor(p.family); }
 function famName(f) { const x = CFG && CFG.families[f]; return x ? (x.he || x.name) : f; }
 function blocName(k) { const x = CFG && CFG.blocs[k]; return x ? (x.he || x.name) : k; }
 function letterBadge(p) { return `<span class="letter" style="background:${pColor(p)}">${esc(p.letter)}</span>`; }
@@ -430,6 +451,12 @@ async function load() {
       if (S && st.changes && !st.changes.first) {
         const c = st.changes;
         newCodes = new Set(c.new_codes || []);
+        // Threshold crossings ALWAYS get a toast — this is election-night drama worth surfacing.
+        (c.threshold_crossings || []).forEach(x => {
+          const dir = x.direction === "up" ? "חצתה מעל" : "ירדה מתחת";
+          const cls = x.direction === "up" ? "up" : "down";
+          toast(`<b class="${cls}">${esc(x.short_he || x.name)}</b> ${dir} אחוז החסימה · ${(x.to_pct * 100).toFixed(2)}%${x.seats_delta ? ` · ${x.seats_delta > 0 ? "+" : ""}${x.seats_delta} מנד׳` : ""}`);
+        });
         if (Date.now() - lastToast > 6000) {
           lastToast = Date.now();
           toast(`<b>עדכון חדש</b> · ${nf(c.votes_added)} קולות · ${c.new_localities_count} יישובים חדשים${c.new_localities.length ? `<br><span style="opacity:.8">${c.new_localities.slice(0, 5).map(esc).join(", ")}</span>` : ""}`);
@@ -474,7 +501,7 @@ function renderHeader() {
 // ---------- router
 const routes = {
   overview: renderOverview, parties: renderParties, party: renderParty, cities: renderCities, city: renderCity,
-  ballot: renderBallot, sectors: renderSectors, coalition: renderCoalition, timeline: renderTimeline, feed: renderFeed,
+  ballot: renderBallot, sectors: renderSectors, coalition: renderCoalition, timeline: renderTimeline, analytics: renderAnalytics, feed: renderFeed,
 };
 let curRoute = "";
 function withVT(fn) {
@@ -751,10 +778,12 @@ function renderOverview() {
   </div>
   <div class="card mt">
     <h2>תוצאות לפי רשימה <small>הקו האנכי = אחוז החסימה · לחצו לפרטים</small><span class="tools"><a class="btn" href="#/parties">כל הרשימות ←</a></span></h2>
-    <table><thead><tr><th>רשימה</th><th style="width:36%"></th><th class="n">אחוז</th><th class="n">קולות</th><th class="n">מנדטים</th><th class="n">תחזית</th><th class="n">שינוי מ-2022</th></tr></thead><tbody>
-    ${top.map(p => { const fam = S.families.find(f => f.key === p.family); const d = p.base_family_pct != null && fam ? fam.swing : null;
+    <table><thead><tr><th>רשימה</th><th style="width:28%"></th><th class="n">אחוז</th><th>מגמה</th><th class="n">קולות</th><th class="n">מנדטים</th><th class="n">תחזית</th><th class="n">שינוי מ-2022</th></tr></thead><tbody>
+    ${top.map(p => { const fam = S.families.find(f => f.key === p.family); const d = p.base_family_pct != null && fam ? fam.swing : null; const spts = sparkPoints(p.letter, "pct"); const sc = pColor(p);
       return `<tr class="click" data-flip="party-${esc(p.letter)}" onclick="goParty(${js(p.letter)})"><td>${letterBadge(p)} <b>${esc(p.short_he)}</b>${p.passes ? "" : ' <span class="tag bad">מתחת לחסימה</span>'}</td>
-      <td>${shareBar(p.pct, max, pColor(p), S.meta.threshold)}</td><td class="n"><b>${pc(p.pct, 2)}</b></td><td class="n">${nf(p.votes)}</td>
+      <td>${shareBar(p.pct, max, pColor(p), S.meta.threshold)}</td><td class="n"><b>${pc(p.pct, 2)}</b></td>
+      <td style="padding:4px 8px">${sparkline(spts, sc, 80, 22)}</td>
+      <td class="n">${nf(p.votes)}</td>
       <td class="n"><b>${p.seats}</b></td><td class="n">${p.proj_seats ?? "–"}</td><td class="n ${cls(d)}">${d == null ? '<span class="muted">–</span>' : pp(d)}</td></tr>`; }).join("")}
     </tbody></table>
   </div>
@@ -1131,6 +1160,291 @@ function renderTimeline() {
     <div class="card"><h2>אחוז הרשימות הגדולות</h2>${lineChart(topP.map(p => ({ label: p.short_he, color: pColor(p), get: h => h.parties[p.letter] ? h.parties[p.letter][0] : null })), Math.min(0.5, Math.max(0.1, ...topP.map(p => p.pct || 0)) * 1.25), v => (v * 100).toFixed(0) + "%", 0.0325, "חסימה")}</div>
     <div class="card"><h2>קצב הספירה</h2>${lineChart([{ label: "נספרו", color: "var(--accent)", get: h => h.progress }], 1, v => Math.round(v * 100) + "%")}</div>
   </div>`;
+}
+
+// ---------- ANALYTICS
+let analytics = { matrix: null, matrixKey: null, whatif: { arab: 0, haredi: 0, large: 0, jewish: 0 }, whatifBloc: { N: 0, O: 0, A: 0 }, whatifResult: null };
+function sparkline(points, color, width = 92, height = 24) {
+  if (!points || points.length < 2) return `<svg width="${width}" height="${height}"></svg>`;
+  const n = points.length, max = Math.max(...points, 0.001), min = Math.min(...points, 0);
+  const span = Math.max(max - min, 0.001);
+  const x = i => (i / (n - 1)) * (width - 2) + 1;
+  const y = v => (1 - (v - min) / span) * (height - 4) + 2;
+  const line = points.map((v, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  const area = line + ` L${x(n - 1).toFixed(1)},${height - 1} L${x(0).toFixed(1)},${height - 1} Z`;
+  const last = points[points.length - 1];
+  return `<svg width="${width}" height="${height}" style="display:block;direction:ltr"><path d="${area}" fill="${color}" opacity=".18"/><path d="${line}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round"/><circle cx="${x(n - 1).toFixed(1)}" cy="${y(last).toFixed(1)}" r="2" fill="${color}"/></svg>`;
+}
+function sparkPoints(letter, key) {
+  if (!S || !S.history) return [];
+  const idx = key === "seats" ? 1 : key === "proj_seats" ? 2 : 0;
+  return S.history.slice(-24).map(h => h.parties && h.parties[letter] && h.parties[letter][idx]).filter(v => v != null);
+}
+function voteVelocity() {
+  const H = (S && S.history) || [];
+  if (H.length < 2) return { bpm: 0, eta: null };
+  const recent = H.slice(-20);
+  const t0 = new Date(recent[0].t).getTime(), tN = new Date(recent[recent.length - 1].t).getTime();
+  const dt = Math.max(1, (tN - t0) / 1000);
+  const dv = (recent[recent.length - 1].valid || 0) - (recent[0].valid || 0);
+  const vps = dv > 0 ? dv / dt : 0;
+  const prog = S.progress || {};
+  const total = prog.ballots_total || 0, counted = prog.ballots_counted || 0;
+  const remaining = Math.max(0, total - counted);
+  const avgPerBallot = counted > 0 ? (S.national.valid || 0) / counted : 350;
+  const votesLeft = remaining * avgPerBallot;
+  const eta = vps > 0 ? Math.round(votesLeft / vps) : null;
+  return { vps, bpm: Math.round(vps * 60), eta };
+}
+function fmtEta(s) {
+  if (s == null || !isFinite(s)) return "–";
+  if (s < 60) return `${s} שנ׳`;
+  if (s < 3600) return `${Math.round(s / 60)} דק׳`;
+  return `${(s / 3600).toFixed(1)} שעות`;
+}
+function heatCell(share) {
+  if (share == null) return `<td class="n muted">–</td>`;
+  const t = Math.min(1, share / 0.5);
+  const bg = `rgba(42,120,214,${(0.08 + 0.42 * t).toFixed(2)})`;
+  return `<td class="n" style="background:${bg};font-variant-numeric:tabular-nums">${(share * 100).toFixed(1)}%</td>`;
+}
+async function loadMatrix() {
+  const key = (S && S.meta && (S.meta.hash || S.meta.analyzed_at)) || "";
+  if (analytics.matrixKey === key && analytics.matrix) return analytics.matrix;
+  try {
+    analytics.matrix = await api("/api/analytics/matrix");
+    analytics.matrixKey = key;
+  } catch (e) { analytics.matrix = null; }
+  return analytics.matrix;
+}
+async function runWhatif() {
+  try {
+    const body = { turnout_delta: analytics.whatif, bloc_swing: analytics.whatifBloc };
+    analytics.whatifResult = await api("/api/analytics/whatif", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+  } catch (e) { analytics.whatifResult = null; }
+  const out = $("#whatifOut"); if (out) out.innerHTML = whatifHtml();
+}
+function whatifHtml() {
+  const w = analytics.whatifResult;
+  if (!w || w.error) return `<p class="muted">הזיזו את המחוונים לחישוב מחדש</p>`;
+  return `<div class="grid g-kpi">
+    ${S.blocs.map(b => { const now = w.blocs[b.key] || { seats: 0 }; const was = S.parties.filter(p => p.bloc === b.key).reduce((a, p) => a + (p.proj_seats || 0), 0); const d = now.seats - was;
+      return `<div class="card kpi" style="padding:10px"><div class="lbl">${esc(blocName(b.key))}</div><div class="val" style="font-size:22px">${now.seats} <span class="sub ${d > 0 ? "up" : d < 0 ? "down" : ""}">${d ? LRM + (d > 0 ? "+" : "") + d : ""}</span></div></div>`; }).join("")}
+  </div>`;
+}
+function crossingsLog() {
+  const c = (S && S.changes) || {};
+  const items = (c.threshold_crossings || []).slice(0, 10);
+  if (!items.length) return '<p class="muted">אין אירועי חסימה בעדכון האחרון.</p>';
+  return `<ul class="ins">${items.map(x => `
+    <li class="${x.direction === "up" ? "up" : "down"}">${esc(x.short_he || x.name)} ${x.direction === "up" ? "חצתה מעל" : "ירדה מתחת"} אחוז החסימה
+      <span class="sub">(${(x.from_pct * 100).toFixed(2)}% → ${(x.to_pct * 100).toFixed(2)}%${x.seats_delta ? `; ${x.seats_delta > 0 ? "+" : ""}${x.seats_delta} מנדטים` : ""})</span></li>`).join("")}</ul>`;
+}
+function renderAnalytics() {
+  if (!S) return;
+  const vel = voteVelocity();
+  const top = S.parties.filter(p => (p.pct || 0) >= 0.005).slice(0, 14);
+  $("#view").innerHTML = `
+  <div class="grid g-kpi">
+    ${kpi("קצב ספירה", nf(vel.bpm) + " <span class='sub'>קולות/דקה</span>", vel.vps ? `≈ ${nf(Math.round(vel.vps))} קולות/שנ׳` : "אין מספיק דגימות")}
+    ${kpi("זמן משוער לסיום", fmtEta(vel.eta), vel.eta ? "לפי המקצב של 20 העדכונים האחרונים" : "–")}
+    ${kpi("יישובים שדיווחו", nf(S.progress.localities_reporting) + " / " + nf(S.progress.localities_total), S.progress.envelopes_counted ? "מעטפות חיצוניות: נספרו" : "מעטפות חיצוניות: טרם")}
+    ${kpi("ודאות התחזית", S.projection ? ({ low: "נמוכה", medium: "בינונית", high: "גבוהה" })[S.projection.confidence] : "–", S.projection ? `צפי קולות סופי: ${nf(S.projection.expected_valid)}` : "")}
+  </div>
+  <div class="grid g-main mt">
+    <div class="card">
+      <h2>מגמת אחוזי התמיכה <small>לפי העדכונים האחרונים</small></h2>
+      <table><thead><tr><th>רשימה</th><th class="n">אחוז כעת</th><th class="n">תחזית</th><th>מגמה</th></tr></thead><tbody>
+      ${top.map(p => { const pts = sparkPoints(p.letter, "pct"); const c = pColor(p);
+        return `<tr class="click" data-flip="an-${esc(p.letter)}" onclick="goParty(${js(p.letter)})"><td>${letterBadge(p)} ${esc(p.short_he)}</td>
+          <td class="n"><b>${pc(p.pct, 2)}</b></td><td class="n">${pc(p.proj_pct, 2)}</td>
+          <td style="padding:4px 8px">${sparkline(pts, c, 120, 26)}</td></tr>`; }).join("")}
+      </tbody></table>
+    </div>
+    <div class="card">
+      <h2>אירועי אחוז החסימה <small>רשימות שחצו 3.25%</small></h2>
+      ${crossingsLog()}
+    </div>
+  </div>
+  <div class="card mt" id="matrixCard">
+    <h2>מקור הקולות לפי מגזר</h2>
+    <div class="empty">טוען…</div>
+  </div>
+  <div class="card mt">
+    <h2>סימולטור "מה אם" <small>הזיזו את המחוונים לראות איך משתנה התחזית</small></h2>
+    <div class="controls" style="flex-direction:column;align-items:stretch;gap:14px">
+      ${["arab", "haredi", "large", "jewish"].map(s => `
+        <label style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <span style="min-width:140px">${esc(SECTORS[s] || s)}</span>
+          <input type="range" min="-15" max="15" step="1" value="${(analytics.whatif[s] * 100) | 0}" data-whatif-sector="${s}" style="flex:1;max-width:260px">
+          <span class="sub" data-whatif-sector-label="${s}" style="min-width:70px">הצבעה <b>${(analytics.whatif[s] * 100 >= 0 ? "+" : "")}${(analytics.whatif[s] * 100) | 0}</b> נק׳</span>
+        </label>`).join("")}
+      ${["N", "O", "A"].map(b => `
+        <label style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <span style="min-width:140px"><span class="sw" style="background:${blocColor(b)}"></span>${esc(blocName(b))}</span>
+          <input type="range" min="-10" max="10" step="1" value="${(analytics.whatifBloc[b] * 100) | 0}" data-whatif-bloc="${b}" style="flex:1;max-width:260px">
+          <span class="sub" data-whatif-bloc-label="${b}" style="min-width:70px">גוש <b>${(analytics.whatifBloc[b] * 100 >= 0 ? "+" : "")}${(analytics.whatifBloc[b] * 100) | 0}</b> נק׳</span>
+        </label>`).join("")}
+    </div>
+    <div class="mt" id="whatifOut">${whatifHtml()}</div>
+  </div>`;
+  $$("[data-whatif-sector]").forEach(inp => inp.addEventListener("input", e => {
+    const s = e.target.dataset.whatifSector, v = (+e.target.value) / 100;
+    analytics.whatif[s] = v;
+    const lbl = $(`[data-whatif-sector-label="${s}"]`);
+    if (lbl) lbl.innerHTML = `הצבעה <b>${v * 100 >= 0 ? "+" : ""}${(v * 100) | 0}</b> נק׳`;
+    clearTimeout(runWhatif._t); runWhatif._t = setTimeout(runWhatif, 180);
+  }));
+  $$("[data-whatif-bloc]").forEach(inp => inp.addEventListener("input", e => {
+    const b = e.target.dataset.whatifBloc, v = (+e.target.value) / 100;
+    analytics.whatifBloc[b] = v;
+    const lbl = $(`[data-whatif-bloc-label="${b}"]`);
+    if (lbl) lbl.innerHTML = `גוש <b>${v * 100 >= 0 ? "+" : ""}${(v * 100) | 0}</b> נק׳`;
+    clearTimeout(runWhatif._t); runWhatif._t = setTimeout(runWhatif, 180);
+  }));
+  loadMatrix().then(m => {
+    const card = $("#matrixCard");
+    if (!card || !m || !m.parties || !m.parties.length) { if (card) card.innerHTML = '<h2>מקור הקולות לפי מגזר</h2><p class="muted">אין עדיין מספיק נתונים.</p>'; return; }
+    card.innerHTML = `<h2>מקור הקולות לפי מגזר <small>אחוז הקולות של כל רשימה שהגיע מכל מגזר</small></h2>
+      <div class="scroll"><table><thead><tr><th>רשימה</th>${m.sectors.map(s => `<th class="n">${esc(s.name_he)}</th>`).join("")}</tr></thead><tbody>
+      ${m.parties.slice(0, 16).map(p => `<tr class="click" onclick="goParty(${js(p.letter)})"><td>${letterBadge(p)} ${esc(p.short_he || p.letter)}</td>${m.sectors.map(s => heatCell(m.share[p.letter] && m.share[p.letter][s.key])).join("")}</tr>`).join("")}
+      </tbody></table></div>`;
+  });
+  if (!analytics.whatifResult) runWhatif();
+  // Advanced analyses appended at the bottom of the view
+  const view = $("#view");
+  view.insertAdjacentHTML("beforeend", advancedAnalyses());
+}
+
+// -- advanced analyses: bellwether cities, threshold watchlist, head-to-head, stability, outliers
+function bigCityBellwethers() {
+  const cities = (S.cities || []).filter(c => (c.base_eligible || 0) >= 80000 && c.sector !== "envelopes" && c.valid && c.turnout_delta != null).slice(0, 20);
+  cities.sort((a, b) => -(b.base_eligible || 0) + (a.base_eligible || 0));
+  if (!cities.length) return '<p class="muted">אין עדיין נתונים מהערים הגדולות.</p>';
+  return `<table><thead><tr><th>יישוב</th><th class="n">נספר</th><th class="n">הצבעה</th><th class="n">Δ</th><th>מובילה כעת</th><th>מובילה 2022</th><th class="n">גוש נ׳ Δ</th><th class="n">אופוזיציה Δ</th></tr></thead><tbody>
+    ${cities.slice(0, 15).map(c => { const w = c.winner ? party(c.winner) : null, bw = c.base_winner ? bparty(c.base_winner) : null;
+      const flipped = c.flipped;
+      return `<tr class="click" data-flip="bell-${c.code}" onclick="goCity(${c.code})"><td><b>${esc(c.name)}</b>${flipped ? ' <span class="tag warn">החלפה</span>' : ""}</td>
+        <td class="n">${pc(c.reporting, 0)}</td><td class="n">${pc(c.turnout)}</td><td class="n ${cls(c.turnout_delta)}">${pp(c.turnout_delta)}</td>
+        <td>${w ? `<span class="sw" style="background:${pColor(w)}"></span>${esc(w.short_he)} ${pc(c.winner_pct, 0)}` : "–"}</td>
+        <td class="muted">${bw ? `${esc(bw.short_he)} ${pc(c.base_winner_pct, 0)}` : "–"}</td>
+        <td class="n ${cls(c.bloc_swing && c.bloc_swing.N)}">${pp(c.bloc_swing && c.bloc_swing.N)}</td>
+        <td class="n ${cls(c.bloc_swing && c.bloc_swing.O)}">${pp(c.bloc_swing && c.bloc_swing.O)}</td></tr>`; }).join("")}
+  </tbody></table>`;
+}
+
+function thresholdWatchlist() {
+  // Rank parties by closeness to the 3.25% line + direction of movement.
+  const near = (S.parties || []).filter(p => p.pct != null && p.pct >= 0.012 && p.pct <= 0.055);
+  if (!near.length) return '<p class="muted">אין רשימות קרובות לאחוז החסימה כרגע.</p>';
+  const scored = near.map(p => {
+    const trajectory = sparkPoints(p.letter, "pct");
+    const trend = trajectory.length >= 3 ? trajectory[trajectory.length - 1] - trajectory[0] : 0;
+    const distance = p.pct - 0.0325;  // positive = above, negative = below
+    const risk = Math.abs(distance) * 100;  // smaller = closer to threshold
+    return { p, trend, distance, risk, trajectory };
+  }).sort((a, b) => a.risk - b.risk);
+  return `<table><thead><tr><th>רשימה</th><th class="n">אחוז</th><th class="n">מרחק מהחסימה</th><th class="n">מגמה</th><th>סטטוס</th></tr></thead><tbody>
+    ${scored.slice(0, 10).map(x => { const p = x.p, c = pColor(p);
+      const passing = p.pct >= 0.0325;
+      return `<tr class="click" data-flip="thr-${esc(p.letter)}" onclick="goParty(${js(p.letter)})">
+        <td>${letterBadge(p)} ${esc(p.short_he)}</td>
+        <td class="n"><b>${pc(p.pct, 2)}</b></td>
+        <td class="n ${passing ? "up" : "down"}">${pp(x.distance, 2)}</td>
+        <td style="padding:4px 8px">${sparkline(x.trajectory, c, 90, 24)}</td>
+        <td>${passing ? '<span class="tag ok">עוברת</span>' : `<span class="tag bad">חסרים ${nf(p.to_threshold)}</span>`}</td></tr>`; }).join("")}
+  </tbody></table>`;
+}
+
+function headToHead() {
+  // Find the 4 closest races: adjacent parties ranked by pct whose gap is smallest.
+  const sorted = (S.parties || []).filter(p => p.pct != null && p.pct >= 0.015).slice().sort((a, b) => (b.pct || 0) - (a.pct || 0));
+  const races = [];
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const a = sorted[i], b = sorted[i + 1];
+    const gap = (a.pct || 0) - (b.pct || 0);
+    races.push({ a, b, gap });
+  }
+  races.sort((x, y) => x.gap - y.gap);
+  const top = races.slice(0, 4);
+  if (!top.length) return '<p class="muted">אין מספיק רשימות למירוצי צמוד.</p>';
+  return `<div class="grid g-3">${top.map(r => { const ca = pColor(r.a), cb = pColor(r.b); const aw = (r.a.pct || 0) / ((r.a.pct || 0) + (r.b.pct || 0)) * 100;
+    return `<div style="border:1px solid var(--border);border-radius:10px;padding:12px">
+      <div class="sub">מרווח ${pp(r.gap, 2)} נק׳ · ${(r.a.seats + r.b.seats)} מנדטים משולבים</div>
+      <div style="display:flex;gap:8px;margin:8px 0"><b style="color:${ca}">${esc(r.a.short_he)} ${pc(r.a.pct, 2)}</b><span class="spacer"></span><b style="color:${cb}">${pc(r.b.pct, 2)} ${esc(r.b.short_he)}</b></div>
+      <div style="height:10px;border-radius:5px;overflow:hidden;display:flex"><div style="width:${aw}%;background:${ca}"></div><div style="width:${100 - aw}%;background:${cb}"></div></div>
+      <div class="sub" style="margin-top:6px">${r.a.seats} מנד׳ <span class="muted">·</span> ${r.b.seats} מנד׳</div>
+    </div>`; }).join("")}</div>`;
+}
+
+function projectionStability() {
+  // Variance of top-6 parties' projected seats over last 10 polls.
+  const H = (S.history || []).slice(-15);
+  if (H.length < 5) return '<p class="muted">דרושים לפחות 5 עדכונים.</p>';
+  const top = (S.parties || []).filter(p => (p.seats || 0) > 0).slice(0, 8);
+  const rows = top.map(p => {
+    const series = H.map(h => h.parties && h.parties[p.letter] && h.parties[p.letter][2]).filter(v => v != null);
+    if (series.length < 3) return null;
+    const mean = series.reduce((a, b) => a + b, 0) / series.length;
+    const variance = series.reduce((a, b) => a + (b - mean) ** 2, 0) / series.length;
+    const std = Math.sqrt(variance);
+    return { p, mean, std, series, range: Math.max(...series) - Math.min(...series) };
+  }).filter(Boolean);
+  if (!rows.length) return '<p class="muted">אין עדיין מספיק נתונים.</p>';
+  rows.sort((a, b) => b.std - a.std);
+  const level = s => s < 0.3 ? ["ok", "יציבה"] : s < 1.2 ? ["warn", "מתנודדת"] : ["bad", "לא יציבה"];
+  return `<table><thead><tr><th>רשימה</th><th class="n">תחזית נוכחית</th><th class="n">סטיית תקן</th><th class="n">טווח</th><th>מגמה</th><th>יציבות</th></tr></thead><tbody>
+    ${rows.map(r => { const [lvl, label] = level(r.std); const c = pColor(r.p);
+      return `<tr><td>${letterBadge(r.p)} ${esc(r.p.short_he)}</td>
+        <td class="n"><b>${r.p.proj_seats ?? "–"}</b></td>
+        <td class="n">${r.std.toFixed(2)}</td>
+        <td class="n">${r.range}</td>
+        <td style="padding:4px 8px">${sparkline(r.series, c, 90, 22)}</td>
+        <td><span class="tag ${lvl}">${label}</span></td></tr>`; }).join("")}
+  </tbody></table>`;
+}
+
+function sectorOutliers() {
+  // Cities whose bloc swing is >2σ from their sector's mean swing.
+  const cities = (S.cities || []).filter(c => c.valid && c.bloc_swing && c.sector !== "envelopes" && (c.base_eligible || 0) >= 2000 && (c.reporting || 0) >= 0.6);
+  const bySector = {};
+  cities.forEach(c => { bySector[c.sector] = bySector[c.sector] || []; bySector[c.sector].push(c); });
+  const outliers = [];
+  for (const [sec, list] of Object.entries(bySector)) {
+    if (list.length < 5) continue;
+    const swings = list.map(c => c.bloc_swing.N || 0);
+    const mean = swings.reduce((a, b) => a + b, 0) / swings.length;
+    const std = Math.sqrt(swings.reduce((a, b) => a + (b - mean) ** 2, 0) / swings.length);
+    if (std < 0.005) continue;
+    for (const c of list) {
+      const z = ((c.bloc_swing.N || 0) - mean) / std;
+      if (Math.abs(z) >= 2.0) outliers.push({ c, z, mean, sec });
+    }
+  }
+  outliers.sort((a, b) => Math.abs(b.z) - Math.abs(a.z));
+  if (!outliers.length) return '<p class="muted">אין יישובים חריגים כרגע ביחס למגזרם.</p>';
+  return `<table><thead><tr><th>יישוב</th><th>מגזר</th><th class="n">גוש נ׳ Δ</th><th class="n">ממוצע מגזרי</th><th class="n">סטיות (z)</th></tr></thead><tbody>
+    ${outliers.slice(0, 12).map(o => `<tr class="click" data-flip="outl-${o.c.code}" onclick="goCity(${o.c.code})">
+      <td><b>${esc(o.c.name)}</b></td>
+      <td class="muted">${esc(SECTORS[o.sec] || o.sec)}</td>
+      <td class="n ${cls(o.c.bloc_swing.N)}">${pp(o.c.bloc_swing.N)}</td>
+      <td class="n muted">${pp(o.mean)}</td>
+      <td class="n"><b>${o.z >= 0 ? "+" : ""}${o.z.toFixed(1)}σ</b></td></tr>`).join("")}
+  </tbody></table>`;
+}
+
+function advancedAnalyses() {
+  return `<div class="card mt"><h2>ערי מפתח — מגמות מול 2022 <small>הערים הגדולות שהתוצאה שלהן משפיעה על המדינה כולה</small></h2>${bigCityBellwethers()}</div>
+    <div class="grid g-main mt">
+      <div class="card"><h2>מירוצי צמוד <small>הרשימות הקרובות ביותר זו לזו</small></h2>${headToHead()}</div>
+      <div class="card"><h2>רשימות סביב אחוז החסימה</h2>${thresholdWatchlist()}</div>
+    </div>
+    <div class="grid g-main mt">
+      <div class="card"><h2>יציבות התחזית <small>סטיית תקן של התחזית לאורך העדכונים האחרונים</small></h2>${projectionStability()}</div>
+      <div class="card"><h2>יישובים חריגים <small>מגמת גוש &gt; 2σ מהממוצע המגזרי</small></h2>${sectorOutliers()}</div>
+    </div>`;
 }
 
 // ---------- FEED

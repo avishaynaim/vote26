@@ -459,6 +459,8 @@ def make_handler(mon: Monitor):
             if path == "/api/search":
                 q = urllib.parse.parse_qs(u.query).get("q", [""])[0]
                 return self._json(mon.analyzer.search(mon.current_file, q))
+            if path == "/api/analytics/matrix":
+                return self._json(mon.analyzer.party_matrix(mon.current_file))
             m = re.match(r"^/api/city/(\d+)$", path)
             if m:
                 d = mon.analyzer.city_detail(mon.current_file, int(m.group(1)))
@@ -503,6 +505,20 @@ def make_handler(mon: Monitor):
             if u.path == "/api/refresh":
                 mon.poke()
                 return self._json({"ok": True})
+            if u.path == "/api/analytics/whatif":
+                n = int(self.headers.get("Content-Length") or 0)
+                try:
+                    body = json.loads(self.rfile.read(n) or b"{}") if n < 20000 else {}
+                except ValueError:
+                    body = {}
+                try:
+                    out = mon.analyzer.whatif(mon.current_file, mon.ballots,
+                                              turnout_delta=body.get("turnout_delta"),
+                                              bloc_swing=body.get("bloc_swing"),
+                                              family_swing=body.get("family_swing"))
+                except Exception as e:
+                    return self._json({"error": f"{type(e).__name__}: {e}"}, 500)
+                return self._json(out or {"error": "no state yet"}, 200 if out else 503)
             if u.path == "/api/upload":
                 kind = urllib.parse.parse_qs(u.query).get("kind", ["expc"])[0]
                 if kind not in ("expc", "expb"):

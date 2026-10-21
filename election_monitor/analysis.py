@@ -775,6 +775,133 @@ class Analyzer:
             "cities": len(cities),
         }
 
+    def party_matrix(self, current: Optional[ResultFile]) -> dict:
+        """Per-party per-sector vote share — the matrix behind the analytics heatmap.
+        Returns {sectors: [key,...], parties: [letter,...], share: {letter: {sector: pct}}, votes: {letter: int}}."""
+        if current is None:
+            return {"sectors": [], "parties": [], "share": {}, "votes": {}}
+        sec_totals: dict[str, int] = {}
+        sec_letters: dict[str, dict[str, int]] = {}
+        letter_tot: dict[str, int] = {}
+        for code, row in current.by_city().items():
+            if not row.valid:
+                continue
+            s = self._sector_of(code)
+            sec_totals[s] = sec_totals.get(s, 0) + row.valid
+            d = sec_letters.setdefault(s, {})
+            for l, v in row.votes.items():
+                if not v:
+                    continue
+                d[l] = d.get(l, 0) + v
+                letter_tot[l] = letter_tot.get(l, 0) + v
+        sectors = [s for s in ("arab", "haredi", "large", "jewish", "envelopes", "new") if s in sec_totals]
+        letters = [l for l, _ in sorted(letter_tot.items(), key=lambda kv: -kv[1]) if letter_tot[l] > 0]
+        share = {}
+        for l in letters:
+            share[l] = {}
+            for s in sectors:
+                tot = sec_totals.get(s, 0)
+                v = sec_letters.get(s, {}).get(l, 0)
+                share[l][s] = _r(v / tot, 5) if tot else None
+        return {"sectors": [{"key": s, "name_he": SECTOR_HE.get(s, s), "valid": sec_totals[s]} for s in sectors],
+                "parties": [{"letter": l, **self.cur.party(l), "votes": letter_tot[l]} for l in letters],
+                "share": share}
+
+    def whatif(self, current: Optional[ResultFile], ballots: Optional[ResultFile],
+               turnout_delta: Optional[dict] = None, bloc_swing: Optional[dict] = None,
+               family_swing: Optional[dict] = None) -> Optional[dict]:
+        """Recompute the projection with user-supplied adjustments applied to each sector.
+
+        turnout_delta: {sector_key: additional_turnout_fraction}  (added to current sector turnout)
+        bloc_swing:   {bloc_key:   extra_share}                   (added to bloc share in each sector)
+        family_swing: {family_key: extra_share}                   (added to family share in each sector)
+        Returns a projection-shaped dict so the UI can render it next to the real one."""
+        if current is None:
+            return None
+        tdelta = turnout_delta or {}
+        bswing = bloc_swing or {}
+        fswing = family_swing or {}
+        cur_cities = {c.code: c for c in (CityAgg(r, self.cur) for r in current.by_city().values())}
+        letters = self._sum_dicts(c.letters for c in cur_cities.values())
+        for p in self.cur.cfg.get("parties", {}):
+            letters.setdefault(p, 0)
+        reporting_mode = self._reporting_mode(cur_cities)
+        counted_ballots: dict[int, int] = {}
+        if ballots is not None:
+            for r in ballots.rows:
+                if r.voters or r.valid:
+                    counted_ballots[r.code] = counted_ballots.get(r.code, 0) + 1
+        rep: dict[int, float] = {}
+        for code, c in cur_cities.items():
+            b = self.base_cities.get(code)
+            if not b:
+                rep[code] = 1.0
+            elif counted_ballots and self.base_ballots.get(code):
+                rep[code] = min(1.0, counted_ballots.get(code, 0) / self.base_ballots[code])
+            elif code == ENVELOPES_CODE or reporting_mode == "volume" or not c.eligible:
+                rep[code] = min(1.0, c.voters / (b.voters * self.growth)) if b.voters else 1.0
+            else:
+                rep[code] = min(1.0, c.eligible / (b.eligible * self.growth)) if b.eligible else 1.0
+        sectors = self._sectors(cur_cities, rep, reporting_mode)
+        proj = self._project(cur_cities, rep, letters, sectors)
+        if not proj:
+            return None
+        # Apply user adjustments by re-weighting the projected vote per party, per sector influence.
+        # Simple model: scale each party's projected votes by (1 + family_swing * sector_weight +
+        # bloc_swing * sector_weight), and multiply the expected-valid by the turnout delta's sector weight.
+        if not (tdelta or bswing or fswing):
+            seats = {l: proj["letters"][l]["seats"] for l in proj["letters"]}
+            return {"letters": {l: {**d, "seats": seats[l]} for l, d in proj["letters"].items()},
+                    "families": proj["families"], "blocs": proj["blocs"], "confidence": proj["confidence"],
+                    "expected_valid": proj["expected_valid"], "adjusted": False}
+        # per-sector weight: fraction of each party's remaining votes expected from each sector.
+        sector_weight: dict[str, dict[str, float]] = {l: {} for l in proj["letters"]}
+        for code, b in self.base_cities.items():
+            c = cur_cities.get(code)
+            r = rep.get(code, 0.0) if c else 0.0
+            if r >= 0.99 or not b.valid:
+                continue
+            s = self._sector_of(code)
+            remaining = max(0.0, b.valid * self.growth - (c.valid if c else 0))
+            if not remaining:
+                continue
+            for l, v in b.letters.items():
+                if l in sector_weight:
+                    sector_weight[l][s] = sector_weight[l].get(s, 0.0) + remaining * v / b.valid
+        votes = {l: proj["letters"][l]["votes"] for l in proj["letters"]}
+        expected_valid = float(proj["expected_valid"])
+        for l in votes:
+            p = self.cur.party(l)
+            scale = 1.0
+            for s, w in sector_weight[l].items():
+                if not w:
+                    continue
+                boost = tdelta.get(s, 0.0) + bswing.get(p.get("bloc"), 0.0) + fswing.get(p.get("family"), 0.0)
+                scale += boost * (w / sum(sector_weight[l].values()) if sum(sector_weight[l].values()) else 0)
+            votes[l] *= max(0.0, scale)
+        tot = sum(votes.values())
+        alloc = bader_ofer(votes, self.cur.cfg.get("agreements", []), self.seats, self.threshold)
+        seats = alloc["seats"]
+        fams: dict = {}
+        blocs: dict = {}
+        for l, v in votes.items():
+            p = self.cur.party(l)
+            f, bl = p.get("family", "other"), p.get("bloc", "X")
+            fams.setdefault(f, {"votes": 0.0, "seats": 0})
+            blocs.setdefault(bl, {"votes": 0.0, "seats": 0})
+            fams[f]["votes"] += v
+            fams[f]["seats"] += seats.get(l, 0)
+            blocs[bl]["votes"] += v
+            blocs[bl]["seats"] += seats.get(l, 0)
+        for d in (fams, blocs):
+            for x in d.values():
+                x["pct"] = x["votes"] / tot if tot else 0
+        return {"letters": {l: {"votes": v, "pct": v / tot if tot else 0, "seats": seats.get(l, 0)}
+                            for l, v in votes.items()},
+                "families": fams, "blocs": blocs, "confidence": proj["confidence"],
+                "expected_valid": int(expected_valid), "adjusted": True,
+                "deltas": {"turnout": tdelta, "bloc": bswing, "family": fswing}}
+
     def search(self, current: Optional[ResultFile], q: str) -> list:
         q = q.strip()
         if not q:
@@ -880,11 +1007,21 @@ class Analyzer:
         grew = [c for c in st["cities"] if c.get("valid") and c["code"] in pc and c["valid"] > pc[c["code"]]["valid"]]
         pp = {p["letter"]: p for p in prev.get("parties", [])}
         moves = []
+        crossings = []  # letters crossing the threshold up or down in this update
+        thr = self.threshold
         for p in st["parties"]:
             o = pp.get(p["letter"])
             if o and p["pct"] is not None and o["pct"] is not None:
                 moves.append({"letter": p["letter"], "name": p["name"], "delta": _r(p["pct"] - o["pct"], 5),
                               "seats_delta": p["seats"] - o["seats"]})
+                # Threshold crossing detection: both pcts known, one above, one below.
+                was_above = o["pct"] >= thr
+                is_above = p["pct"] >= thr
+                if was_above != is_above:
+                    crossings.append({"letter": p["letter"], "name": p["name"], "short_he": p.get("short_he", p["letter"]),
+                                      "direction": "up" if is_above else "down",
+                                      "from_pct": _r(o["pct"], 5), "to_pct": _r(p["pct"], 5),
+                                      "seats_delta": p["seats"] - o["seats"]})
         moves.sort(key=lambda m: -abs(m["delta"]))
         return {
             "first": False,
@@ -895,4 +1032,5 @@ class Analyzer:
             "new_codes": [c["code"] for c in new][:300],
             "updated_localities_count": len(grew),
             "party_moves": moves[:8],
+            "threshold_crossings": crossings,
         }
