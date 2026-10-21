@@ -457,12 +457,12 @@ const routes = {
 };
 let curRoute = "";
 function withVT(fn) {
-  // cross-fade the view on mutation. requires Chromium 111+/Safari 18. firefox falls through.
+  // cross-fade on route change. requires Chromium 111+/Safari 18. firefox falls through.
   if (!document.startViewTransition || document.visibilityState !== "visible") { fn(); return; }
   try { document.startViewTransition(fn); } catch (e) { fn(); }
 }
 function tickKpis() {
-  // flash values that changed since the previous render — compared by data-key
+  // pulse values that changed since the previous render — compared by data-key
   const map = tickKpis._prev || (tickKpis._prev = new Map());
   $$(".kpi .val[data-key]").forEach(el => {
     const k = el.dataset.key, v = el.textContent.trim();
@@ -473,21 +473,30 @@ function tickKpis() {
     map.set(k, v);
   });
 }
+function renderInto(fn) {
+  // Replace the view with new HTML in one synchronous mutation. innerHTML inside
+  // a single JS tick does not paint a blank frame — the browser only commits once.
+  fn();
+  requestAnimationFrame(tickKpis);
+}
 function route(isUpdate) {
   const parts = (location.hash.replace(/^#\/?/, "") || "overview").split("/").map(decodeURIComponent);
   const name = routes[parts[0]] ? parts[0] : "overview";
   const tab = { party: "parties", city: "cities" }[name] || name;
   $$("#tabs a").forEach(a => a.classList.toggle("on", a.dataset.tab === tab));
   if (!S && name !== "feed") {
-    withVT(() => { $("#view").innerHTML = `<div class="empty"><div style="font-size:44px">⏳</div><h2>ממתין לתוצאות…</h2><p>המערכת בודקת את אתר התוצאות כל ${STATUS ? STATUS.poll_seconds : "?"} שניות.</p>
+    renderInto(() => { $("#view").innerHTML = `<div class="empty"><div style="font-size:44px">⏳</div><h2>ממתין לתוצאות…</h2><p>המערכת בודקת את אתר התוצאות כל ${STATUS ? STATUS.poll_seconds : "?"} שניות.</p>
       <p class="muted">${esc(STATUS && STATUS.last_error ? "הודעה אחרונה: " + STATUS.last_error : "")}</p><p>אם האתר חוסם גישה אוטומטית, הורידו ממנו את <b>expc.csv</b> והעלו אותו בכפתור <b>העלאת CSV</b>.</p></div>`; });
     curRoute = ""; return;
   }
   // on a data update, keep interactive pages (ballot search, inputs) from being re-rendered under the user's hands
   if (isUpdate && (name === "ballot") && curRoute === location.hash) return;
-  if (isUpdate && name === "cities" && $("#cityView")) { withVT(() => { renderCityTable(); scatter(); }); return; }
+  if (isUpdate && name === "cities" && $("#cityView")) { renderInto(() => { renderCityTable(); scatter(); }); return; }
+  const changed = curRoute !== location.hash;
   curRoute = location.hash;
-  withVT(() => { routes[name](...parts.slice(1)); requestAnimationFrame(tickKpis); });
+  // only cross-fade on actual route change — a data poll should feel seamless, no full-view flash
+  if (changed && !isUpdate) withVT(() => renderInto(() => routes[name](...parts.slice(1))));
+  else renderInto(() => routes[name](...parts.slice(1)));
 }
 addEventListener("hashchange", () => { route(); scrollTo({ top: 0 }); });
 window.goParty = l => { location.hash = "#/party/" + encodeURIComponent(l); };
