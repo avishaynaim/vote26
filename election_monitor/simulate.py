@@ -181,10 +181,18 @@ class LiveSim:
             self.running = True
             self._last_real = time.time()
             self._written = -1
+            # The poll thread may have the feed files open for reading when a reset lands.
+            # On Windows that's an exclusive-share and os.remove throws PermissionError.
+            # Retry briefly; if we still can't delete, the next _write() will overwrite anyway.
             for fn in ("expc.csv", "expb.csv"):
                 p = os.path.join(self.out_dir, fn)
-                if os.path.exists(p):
-                    os.remove(p)
+                for _ in range(20):
+                    try:
+                        if os.path.exists(p):
+                            os.remove(p)
+                        break
+                    except PermissionError:
+                        time.sleep(0.05)
 
     def control(self, speed=None, action=None) -> dict:
         with self.lock:

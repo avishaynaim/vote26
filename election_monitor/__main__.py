@@ -31,8 +31,9 @@ def cmd_serve(a, cfg):
         sources = {"expc": [os.path.abspath(a.file)], "expb": [], "discover_pages": []}
     if a.poll:
         cfg["poll_seconds"] = a.poll
-    if a.simulate:
-        a.data_dir = os.path.join("data", "sim")
+    # Previously --simulate re-pointed data_dir into "data/sim" to isolate the sim's own
+    # files from a possible real-site run on the same box. set_mode("simulate") now writes
+    # to <data_dir>/sim/feed/ unconditionally, so the extra prefix would double up.
     mon = Monitor(cfg, a.current, a.baseline, sources=sources, data_dir=a.data_dir)
     mon._sim_defaults = {"days": a.days, "speed": a.speed}
     if a.simulate:

@@ -380,8 +380,15 @@ def make_handler(mon: Monitor):
                 mon.log(f"{self.address_string()} - {fmt % args}")
 
         def _write_authorized(self) -> bool:
-            # Loopback (same machine) is trusted; anything else needs the admin token.
-            if self.client_address and self.client_address[0] in ("127.0.0.1", "::1", "localhost"):
+            # Loopback is always trusted. Tailscale CGNAT (100.64.0.0/10) is trusted by default
+            # because reaching the port already requires being on the user's tailnet; the firewall
+            # rule we added for /api is scoped to that same range. Set EM_STRICT_AUTH=1 to require
+            # the X-Admin-Token header even from the tailnet.
+            ip = (self.client_address[0] if self.client_address else "") or ""
+            if ip in ("127.0.0.1", "::1", "localhost"):
+                return True
+            strict = os.environ.get("EM_STRICT_AUTH", "").lower() in ("1", "true", "yes")
+            if not strict and ip.startswith("100.") and 64 <= int(ip.split(".", 2)[1] or 0) <= 127:
                 return True
             got = self.headers.get("X-Admin-Token") or urllib.parse.parse_qs(
                 urllib.parse.urlparse(self.path).query).get("token", [""])[0]
