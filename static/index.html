@@ -130,10 +130,84 @@ svg text { fill: var(--text-2); font-size: 11px; }
 .flash { animation: flash 2.4s ease-out; }
 @keyframes flash { 0% { background: color-mix(in srgb, var(--warn) 35%, transparent); } 100% { background: transparent; } }
 .hist { display: flex; align-items: flex-end; gap: 2px; height: 120px; direction: ltr; }
-.hist > div { flex: 1; border-radius: 3px 3px 0 0; min-height: 1px; }
+.hist > div { flex: 1; border-radius: 3px 3px 0 0; min-height: 1px; transition: height .5s cubic-bezier(.4,0,.2,1), background .3s; }
 .nowrap { white-space: nowrap; }
 .note { font-size: 12px; color: var(--muted); margin-top: 8px; }
 code { font-size: 12px; background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
+
+/* ================= motion & micro-interactions ================= */
+:root { --ease: cubic-bezier(.4,0,.2,1); --ease-out: cubic-bezier(.16,1,.3,1); --dur: 320ms; --dur-fast: 180ms; }
+* { -webkit-tap-highlight-color: transparent; }
+
+/* buttons & links: subtle hover + press */
+button, .btn { transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), transform 120ms var(--ease), box-shadow var(--dur-fast) var(--ease); will-change: transform; }
+button:hover, .btn:hover { background: var(--surface-3); }
+button:active, .btn:active { transform: scale(.96); }
+button.primary:hover { filter: brightness(1.08); }
+.seg button { transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), transform 120ms var(--ease), box-shadow var(--dur-fast) var(--ease); }
+.seg button.on { transform: none; }
+
+/* cards: lift on hover, no lift on tables inside the card */
+.card { transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur) var(--ease), transform var(--dur) var(--ease); }
+.card:hover { border-color: color-mix(in srgb, var(--muted) 55%, var(--border)); box-shadow: 0 2px 4px rgba(0,0,0,.04), 0 10px 28px rgba(0,0,0,.06); }
+.kpi { transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease), border-color var(--dur-fast) var(--ease); }
+.kpi:hover { transform: translateY(-1px); }
+.card tbody tr { transition: background 140ms var(--ease); }
+
+/* nav tab underline: slide in */
+nav a { transition: color var(--dur-fast) var(--ease); border-bottom-color: transparent !important; position: relative; }
+nav a::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: 0; height: 2px; background: var(--accent); border-radius: 2px; transform: scaleX(0); transform-origin: center; transition: transform var(--dur) var(--ease-out), opacity var(--dur-fast); opacity: 0; }
+nav a:hover { color: var(--text); }
+nav a:hover::after { transform: scaleX(.5); opacity: .35; }
+nav a.on::after { transform: scaleX(1); opacity: 1; }
+
+/* bars + dividers + progress smoother */
+.bar > i, .div > i { transition: width .9s var(--ease), background .3s; }
+.progress > div { transition: width 1s var(--ease); }
+.meter > div { transition: flex-basis .9s var(--ease), width .9s var(--ease), background .3s; }
+.meter .line { transition: left .9s var(--ease), right .9s var(--ease); }
+
+/* seat chart: smooth color morphs on seat reallocation + fade-in */
+svg.hemicycle circle { transition: fill .55s var(--ease), opacity .4s var(--ease); }
+svg.hemicycle circle.seat-dim { opacity: .18; }
+svg.hemicycle text { transition: fill .4s var(--ease); }
+
+/* KPI value pulse when it changes (JS adds .tick momentarily) */
+.kpi .val { transition: color .4s var(--ease); font-variant-numeric: tabular-nums; }
+.kpi .val.tick { color: var(--accent); }
+.kpi .cmp .up, .kpi .cmp .down { transition: color .4s var(--ease); }
+
+/* toast: entry + exit, soft ease */
+.toast { transition: transform .4s var(--ease-out), opacity .25s var(--ease); opacity: 0; }
+.toast.show { transform: none; opacity: 1; }
+
+/* tag pills: hover feedback */
+.tag, .chip { transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease); }
+.chip:hover { border-color: var(--muted); }
+.pill { transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease); }
+
+/* search results: slide-fade in */
+.results { animation: resultsIn .22s var(--ease-out) both; transform-origin: top; }
+@keyframes resultsIn { from { opacity: 0; transform: translateY(-4px) scale(.98); } to { opacity: 1; transform: none; } }
+
+/* "new" locality flash (already defined — tune color + duration) */
+.flash { animation: flash 2.4s var(--ease-out) both; }
+@keyframes flash { 0% { background: color-mix(in srgb, var(--warn) 42%, transparent); } 60% { background: color-mix(in srgb, var(--warn) 10%, transparent); } 100% { background: transparent; } }
+
+/* ----- View Transitions API: cross-fade on route / state updates ----- */
+main { view-transition-name: dash-main; }
+::view-transition-old(dash-main), ::view-transition-new(dash-main) {
+  animation-duration: 360ms; animation-timing-function: var(--ease);
+}
+::view-transition-old(dash-main) { animation-name: vt-fade-out; }
+::view-transition-new(dash-main) { animation-name: vt-fade-in; }
+@keyframes vt-fade-out { to { opacity: 0; transform: translateY(-2px); } }
+@keyframes vt-fade-in  { from { opacity: 0; transform: translateY(4px); } }
+
+/* reduced motion: honor user preference */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+}
 </style>
 </head>
 <body>
@@ -144,6 +218,11 @@ code { font-size: 12px; background: var(--surface-2); padding: 1px 5px; border-r
       <span class="pill"><span class="dot" id="statusDot"></span><span id="statusText">מתחבר…</span></span>
       <span class="pill" id="siteStatus" style="display:none"></span>
       <span class="spacer"></span>
+      <span class="seg" id="modeSeg" title="מצב מקור הנתונים">
+        <button data-mode="live" title="נתוני אתר האמת">חי</button>
+        <button data-mode="simulate" title="סימולציה: תוצאות 2022 עם שינויים אקראיים">סימולציה</button>
+        <button data-mode="baseline" title="נתוני 2022 הסופיים כנתוני-על">2022</button>
+      </span>
       <div class="search"><input id="q" placeholder="חיפוש יישוב או מפלגה…  ( / )" autocomplete="off"><div class="results hide" id="qres"></div></div>
       <span class="sub" id="updated"></span>
       <button id="refresh" title="בדיקה מיידית באתר">↻ רענון</button>
@@ -201,7 +280,11 @@ function divBar(v, span) {
   const w = Math.min(50, Math.abs(v) / span * 50);
   return `<div class="div" dir="ltr"><i style="${v >= 0 ? `left:50%;width:${w}%;background:var(--pos);border-radius:0 4px 4px 0` : `right:50%;width:${w}%;background:var(--neg);border-radius:4px 0 0 4px`}"></i></div>`;
 }
-function kpi(lbl, val, cmp, tip) { return `<div class="card kpi"${tip ? ` data-tip="${esc(tip)}"` : ""}><div class="lbl">${lbl}</div><div class="val">${val}</div><div class="cmp">${cmp || "&nbsp;"}</div></div>`; }
+function kpi(lbl, val, cmp, tip) {
+  // the label doubles as the change-tracking key — stable across renders
+  const key = String(lbl).replace(/\s+/g, "_");
+  return `<div class="card kpi"${tip ? ` data-tip="${esc(tip)}"` : ""}><div class="lbl">${lbl}</div><div class="val" data-key="${esc(key)}">${val}</div><div class="cmp">${cmp || "&nbsp;"}</div></div>`;
+}
 function toast(msg) { const t = $("#toast"); t.innerHTML = msg; t.classList.add("show"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), 4500); }
 async function api(path, opts) { const r = await fetch(path, opts); if (!r.ok) throw new Error(r.status); return r.json(); }
 
@@ -225,6 +308,26 @@ $("#theme").onclick = () => {
   route();
 };
 $("#refresh").onclick = () => fetch("/api/refresh", { method: "POST" }).then(() => { toast("בודק את האתר…"); setTimeout(load, 1500); });
+$$("#modeSeg button").forEach(b => b.onclick = async () => {
+  const mode = b.dataset.mode;
+  if (STATUS && STATUS.mode === mode) return;
+  const labels = { live: "אתר חי", simulate: "סימולציה", baseline: "נתוני 2022" };
+  b.disabled = true;
+  try {
+    const res = await api("/api/mode", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode }) });
+    STATUS = { ...(STATUS || {}), ...res };
+    S = null; prevKey = null;
+    toast(`מצב: ${labels[mode]}`);
+    renderModeSeg(); route();
+    setTimeout(load, 400);
+  } catch (e) {
+    toast("שגיאה בהחלפת מצב");
+  } finally { b.disabled = false; }
+});
+function renderModeSeg() {
+  const mode = STATUS && STATUS.mode;
+  $$("#modeSeg button").forEach(b => b.classList.toggle("on", b.dataset.mode === mode));
+}
 $("#upload").onchange = async e => {
   const f = e.target.files[0]; if (!f) return;
   const kind = /expb/i.test(f.name) ? "expb" : "expc";
@@ -336,6 +439,7 @@ function renderHeader() {
   const ss = $("#siteStatus");
   ss.style.display = s.site_status ? "" : "none";
   ss.textContent = s.site_status ? "באתר: " + s.site_status : "";
+  renderModeSeg();
   renderSimBar();
   if (S) {
     $("#subtitle").textContent = "בהשוואה לבחירות לכנסת ה-25 (2022) · מקור: אתר ועדת הבחירות המרכזית";
@@ -352,21 +456,38 @@ const routes = {
   ballot: renderBallot, sectors: renderSectors, coalition: renderCoalition, timeline: renderTimeline, feed: renderFeed,
 };
 let curRoute = "";
+function withVT(fn) {
+  // cross-fade the view on mutation. requires Chromium 111+/Safari 18. firefox falls through.
+  if (!document.startViewTransition || document.visibilityState !== "visible") { fn(); return; }
+  try { document.startViewTransition(fn); } catch (e) { fn(); }
+}
+function tickKpis() {
+  // flash values that changed since the previous render — compared by data-key
+  const map = tickKpis._prev || (tickKpis._prev = new Map());
+  $$(".kpi .val[data-key]").forEach(el => {
+    const k = el.dataset.key, v = el.textContent.trim();
+    if (map.has(k) && map.get(k) !== v) {
+      el.classList.remove("tick"); void el.offsetWidth; el.classList.add("tick");
+      setTimeout(() => el.classList.remove("tick"), 650);
+    }
+    map.set(k, v);
+  });
+}
 function route(isUpdate) {
   const parts = (location.hash.replace(/^#\/?/, "") || "overview").split("/").map(decodeURIComponent);
   const name = routes[parts[0]] ? parts[0] : "overview";
   const tab = { party: "parties", city: "cities" }[name] || name;
   $$("#tabs a").forEach(a => a.classList.toggle("on", a.dataset.tab === tab));
   if (!S && name !== "feed") {
-    $("#view").innerHTML = `<div class="empty"><div style="font-size:44px">⏳</div><h2>ממתין לתוצאות…</h2><p>המערכת בודקת את אתר התוצאות כל ${STATUS ? STATUS.poll_seconds : "?"} שניות.</p>
-      <p class="muted">${esc(STATUS && STATUS.last_error ? "הודעה אחרונה: " + STATUS.last_error : "")}</p><p>אם האתר חוסם גישה אוטומטית, הורידו ממנו את <b>expc.csv</b> והעלו אותו בכפתור <b>העלאת CSV</b>.</p></div>`;
+    withVT(() => { $("#view").innerHTML = `<div class="empty"><div style="font-size:44px">⏳</div><h2>ממתין לתוצאות…</h2><p>המערכת בודקת את אתר התוצאות כל ${STATUS ? STATUS.poll_seconds : "?"} שניות.</p>
+      <p class="muted">${esc(STATUS && STATUS.last_error ? "הודעה אחרונה: " + STATUS.last_error : "")}</p><p>אם האתר חוסם גישה אוטומטית, הורידו ממנו את <b>expc.csv</b> והעלו אותו בכפתור <b>העלאת CSV</b>.</p></div>`; });
     curRoute = ""; return;
   }
   // on a data update, keep interactive pages (ballot search, inputs) from being re-rendered under the user's hands
   if (isUpdate && (name === "ballot") && curRoute === location.hash) return;
-  if (isUpdate && name === "cities" && $("#cityView")) { renderCityTable(); scatter(); return; }
+  if (isUpdate && name === "cities" && $("#cityView")) { withVT(() => { renderCityTable(); scatter(); }); return; }
   curRoute = location.hash;
-  routes[name](...parts.slice(1));
+  withVT(() => { routes[name](...parts.slice(1)); requestAnimationFrame(tickKpis); });
 }
 addEventListener("hashchange", () => { route(); scrollTo({ top: 0 }); });
 window.goParty = l => { location.hash = "#/party/" + encodeURIComponent(l); };
@@ -390,7 +511,7 @@ function hemicycle(groups, opts = {}) {
     g += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${dot.toFixed(1)}" fill="${grp.color}" opacity="${dim ? 0.16 : 1}" data-tip="<b>${esc(grp.label)}</b><br>${grp.n} מנדטים"${opts.clickable ? ` style="cursor:pointer" onclick="${opts.clickable}(${js(grp.key)})"` : ""}/>`;
   }
   for (; k < pts.length; k++) { const p = pts[k]; g += `<circle cx="${(cx + R * p.r * Math.cos(p.th)).toFixed(1)}" cy="${(cy - R * p.r * Math.sin(p.th)).toFixed(1)}" r="${dot.toFixed(1)}" fill="var(--surface-3)"/>`; }
-  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="מושבי הכנסת">${g}<text x="${cx}" y="${cy - 30}" text-anchor="middle" style="font-size:34px;font-weight:800;fill:var(--text)">${opts.center ?? ""}</text><text x="${cx}" y="${cy - 8}" text-anchor="middle">${esc(opts.caption || "")}</text></svg>`;
+  return `<svg class="hemicycle" viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="מושבי הכנסת">${g}<text x="${cx}" y="${cy - 30}" text-anchor="middle" style="font-size:34px;font-weight:800;fill:var(--text)">${opts.center ?? ""}</text><text x="${cx}" y="${cy - 8}" text-anchor="middle">${esc(opts.caption || "")}</text></svg>`;
 }
 function seatGroups(source) {
   let arr;
@@ -405,6 +526,8 @@ function seatGroups(source) {
 let ovSeat = "seats";
 function renderOverview() {
   const n = S.national, b = S.baseline_national, pg = S.progress;
+  const sim = !!S.meta.simulation;
+  if (sim && ovSeat === "base") ovSeat = "seats";
   const N = S.blocs.find(x => x.key === "N") || {};
   const groups = seatGroups(ovSeat);
   const nSeats = groups.filter(g => g.bloc === "N").reduce((a, g) => a + g.n, 0);
@@ -414,16 +537,16 @@ function renderOverview() {
   $("#view").innerHTML = `
   <div class="grid g-kpi">
     ${kpi("קלפיות שנספרו", pc(pg.fraction), pg.ballots_counted != null ? `${nf(pg.ballots_counted)} / ${nf(pg.ballots_total)} קלפיות` : `${nf(pg.localities_reporting)} / ${nf(pg.localities_total)} יישובים`, esc(pg.method))}
-    ${kpi("קולות כשרים", nf(n.valid), `סה״כ ב-2022: ${nf(b.valid)}`)}
+    ${kpi("קולות כשרים", nf(n.valid), sim ? "" : `סה״כ ב-2022: ${nf(b.valid)}`)}
     ${kpi("אחוז הצבעה (השוואה זהה)", pc(n.turnout_lfl), `<span class="${cls(n.turnout_lfl_delta)}">${pp(n.turnout_lfl_delta)} נק׳</span> מול ${pc(n.turnout_lfl_base)} באותם יישובים`, "קלפיות רגילות בלבד, בהשוואה לאחוז ההצבעה של אותם יישובים בבחירות הקודמות")}
-    ${kpi("גוש נתניהו", `${N.seats ?? "–"} <span class="sub">מנדטים</span>`, `תחזית ${N.proj_seats ?? "–"} · 2022: ${N.base_seats ?? "–"} · רוב 61`)}
+    ${kpi("גוש נתניהו", `${N.seats ?? "–"} <span class="sub">מנדטים</span>`, sim ? `תחזית ${N.proj_seats ?? "–"} · רוב 61` : `תחזית ${N.proj_seats ?? "–"} · 2022: ${N.base_seats ?? "–"} · רוב 61`)}
     ${kpi("אחוז החסימה", nf(n.threshold_votes), "קולות (3.25% מהכשרים)")}
-    ${kpi("קולות פסולים", pc(n.invalid_pct, 2), `2022: ${pc(b.invalid_pct, 2)}`)}
+    ${kpi("קולות פסולים", pc(n.invalid_pct, 2), sim ? "" : `2022: ${pc(b.invalid_pct, 2)}`)}
   </div>
   <div class="grid g-main mt">
     <div class="card">
       <h2>מושבי הכנסת <small>לחצו על מושב לפרטי המפלגה</small>
-        <span class="tools seg" id="seatSeg"><button data-s="seats">לפי הספירה</button><button data-s="proj_seats">תחזית</button><button data-s="base">2022</button></span></h2>
+        <span class="tools seg" id="seatSeg"><button data-s="seats">לפי הספירה</button><button data-s="proj_seats">תחזית</button>${sim ? "" : `<button data-s="base">2022</button>`}</span></h2>
       ${hemicycle(groups, { center: nSeats, caption: `${blocName("N")} · רוב 61`, clickable: "goParty" })}
       <div class="legend">${groups.map(g => `<a href="#/party/${encodeURIComponent(g.key)}" style="text-decoration:none"><span class="sw" style="background:${g.color}"></span>${esc(g.label)} <b>${g.n}</b></a>`).join("")}</div>
       ${S.projection && ovSeat === "proj_seats" ? `<div class="note">ודאות התחזית: ${({ low: "נמוכה", medium: "בינונית", high: "גבוהה" })[S.projection.confidence]}. הקולות שטרם נספרו מושלמים לפי התוצאה הקודמת בכל יישוב ולפי השינוי שנמדד במגזר שלו.</div>` : ""}
@@ -625,6 +748,7 @@ async function renderCity(code) {
   let d, bl;
   try { [d, bl] = await Promise.all([api("/api/city/" + code), api(`/api/city/${code}/ballots`)]); } catch (e) { $("#view").innerHTML += '<p class="muted">היישוב לא נמצא.</p>'; return; }
   const now = d.now, base = d.base;
+  const sim = !!S.meta.simulation;
   const fmax = Math.max(...d.families.map(f => Math.max(f.pct || 0, f.base_pct || 0)), 0.05);
   const baseBy = Object.fromEntries((base ? base.letters : []).map(l => [l.letter, l]));
   $("#view").innerHTML = `<div id="cityPage" data-c="${code}">
@@ -633,12 +757,12 @@ async function renderCity(code) {
     ${c && c.valid ? `<span class="tag ${c.reporting >= 0.99 ? "ok" : "warn"}">נספרו ${pc(c.reporting, 0)}</span>` : '<span class="tag">טרם דיווח</span>'}
     ${c && c.flipped ? '<span class="tag warn">החליף מפלגה מובילה</span>' : ""}</div>
   <div class="grid g-kpi">
-    ${kpi("בעלי זכות בחירה", nf(now && now.eligible), `2022: ${nf(base && base.eligible)}`)}
-    ${kpi("מצביעים", nf(now && now.voters), `2022: ${nf(base && base.voters)}`)}
-    ${kpi("אחוז הצבעה", pc(c && c.turnout), `2022: ${pc(base && base.turnout)} <span class="${cls(c && c.turnout_delta)}">${c && c.turnout_delta != null ? pp(c.turnout_delta) : ""}</span>`)}
-    ${kpi("קולות כשרים", nf(now && now.valid), `2022: ${nf(base && base.valid)}`)}
-    ${kpi("קולות פסולים", nf(now && now.invalid), `2022: ${nf(base && base.invalid)}`)}
-    ${kpi("קלפיות", `${nf(bl.counted)} / ${nf(bl.base_total)}`, bl.has_feed ? "נספרו / מספר הקלפיות ב-2022" : "קובץ הקלפיות לא זמין")}
+    ${kpi("בעלי זכות בחירה", nf(now && now.eligible), sim ? "" : `2022: ${nf(base && base.eligible)}`)}
+    ${kpi("מצביעים", nf(now && now.voters), sim ? "" : `2022: ${nf(base && base.voters)}`)}
+    ${kpi("אחוז הצבעה", pc(c && c.turnout), sim ? (c && c.turnout_delta != null ? `<span class="${cls(c.turnout_delta)}">${pp(c.turnout_delta)} נק׳</span> מול אותו יישוב בעבר` : "") : `2022: ${pc(base && base.turnout)} <span class="${cls(c && c.turnout_delta)}">${c && c.turnout_delta != null ? pp(c.turnout_delta) : ""}</span>`)}
+    ${kpi("קולות כשרים", nf(now && now.valid), sim ? "" : `2022: ${nf(base && base.valid)}`)}
+    ${kpi("קולות פסולים", nf(now && now.invalid), sim ? "" : `2022: ${nf(base && base.invalid)}`)}
+    ${kpi("קלפיות", `${nf(bl.counted)} / ${nf(bl.base_total)}`, bl.has_feed ? "נספרו / מספר הקלפיות" : "קובץ הקלפיות לא זמין")}
   </div>
   <div class="grid g-2 mt">
     <div class="card"><h2>משפחות מפלגות: כעת מול 2022</h2>

@@ -18,6 +18,16 @@ import time
 from .feed import ENVELOPES_CODE, load_file
 
 
+def _atomic_replace(src: str, dst: str, attempts: int = 50, pause: float = 0.02) -> None:
+    for _ in range(attempts):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            time.sleep(pause)
+    os.replace(src, dst)
+
+
 class Replay:
     def __init__(self, ballots_path: str, out_dir: str, steps: int = 40, step_seconds: float = 5.0, seed: int = 7):
         self.final = load_file(ballots_path)
@@ -69,7 +79,7 @@ class Replay:
             path = os.path.join(self.out_dir, name)
             with open(path + ".tmp", "w", encoding="utf-8-sig", newline="") as fh:
                 fh.write(buf.getvalue())
-            os.replace(path + ".tmp", path)
+            _atomic_replace(path + ".tmp", path)
         return len(counted)
 
     def run(self) -> None:
@@ -229,7 +239,7 @@ class LiveSim:
             path = os.path.join(self.out_dir, name)
             with open(path + ".tmp", "w", encoding="utf-8-sig", newline="") as fh:
                 fh.write(buf.getvalue())
-            os.replace(path + ".tmp", path)
+            _atomic_replace(path + ".tmp", path)
         self._written = self.reported
 
     def run(self, min_write_interval: float = 1.0) -> None:

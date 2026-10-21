@@ -59,6 +59,8 @@ class Monitor:
                        "expb_url": None, "poll_seconds": cfg.get("poll_seconds", 30), "candidates": {},
                        "site": self.site_url, "site_status": None, "site_totals": None, "site_error": None}
         self.sim = None  # LiveSim when running a simulation
+        self.mode = "live"  # one of: "live" (real site), "simulate", "baseline" (2022 final as current)
+        self._sim_defaults = {"days": 5.0, "speed": 100}
         self._wake = threading.Event()
         self._stop = threading.Event()
         self._discovered = False
@@ -98,6 +100,69 @@ class Monitor:
                 os.remove(self.history_path)
         for src in (self.expc, self.expb):
             src._mtime.clear()
+
+    def set_mode(self, mode: str, days: Optional[float] = None, speed: Optional[int] = None) -> dict:
+        """Switch between 'live' (real site), 'simulate' (mock), and 'baseline' (2022 final).
+
+        Reconfigures the pollable sources, stops/starts the simulation thread, and
+        forgets the current state so the next poll re-ingests under the new mode.
+        """
+        if mode not in ("live", "simulate", "baseline"):
+            raise ValueError(f"unknown mode: {mode}")
+        with self.lock:
+            if self.sim is not None:
+                self.sim.stop()
+                self.sim = None
+            self.mode = mode
+            self._discovered = False
+            self.status["expc_url"] = self.status["expb_url"] = None
+            self.status["last_error"] = self.status["site_error"] = None
+            self.status["site_status"] = self.status["site_totals"] = None
+            run_discover = False
+            if mode == "live":
+                ecfg = self.cfg["elections"][self.current]
+                src = ecfg.get("sources", {}) or {}
+                self.expc = Source("expc", [_abs(u) for u in src.get("expc", [])])
+                self.expb = Source("expb", [_abs(u) for u in src.get("expb", [])])
+                self.site_url = ecfg.get("site")
+                self.discover_pages = [self.site_url, self.site_url.rstrip("/") + "/nationalresults"] if self.site_url else []
+                self.cfg["poll_seconds"] = self.cfg.get("live_poll_seconds", 30)
+                run_discover = True
+            elif mode == "baseline":
+                bdir = _abs(self.cfg["elections"][self.baseline]["baseline_dir"])
+                self.expc = Source("expc", [os.path.join(bdir, "expc.csv")])
+                self.expb = Source("expb", [os.path.join(bdir, "expb.csv")])
+                self.site_url = None
+                self.discover_pages = []
+                self.cfg["poll_seconds"] = 5
+            else:  # simulate
+                from .simulate import LiveSim
+                out = os.path.join(ROOT, "data", "sim", "feed")
+                os.makedirs(out, exist_ok=True)
+                self.expc = Source("expc", [os.path.join(out, "expc.csv")])
+                self.expb = Source("expb", [os.path.join(out, "expb.csv")])
+                self.site_url = None
+                self.discover_pages = []
+                self.cfg["poll_seconds"] = 1
+                bdir = _abs(self.cfg["elections"][self.baseline]["baseline_dir"])
+                self.sim = LiveSim(os.path.join(bdir, "expb.csv"), out,
+                                   self.analyzer.base.family, self.analyzer._sector_of,
+                                   days=days or self._sim_defaults["days"],
+                                   speed=speed or self._sim_defaults["speed"])
+                self.sim.start()
+            self.status["site"] = self.site_url
+            self.status["poll_seconds"] = self.cfg["poll_seconds"]
+        self.reset_state()
+        if run_discover:
+            try:
+                self.discover()
+                self._discovered = True
+            except Exception as e:
+                self.log(f"discover on mode switch failed: {e}")
+        self.poke()
+        self.log(f"mode: {mode}")
+        return {"mode": self.mode, "sim": self.sim.status() if self.sim else None,
+                "poll_seconds": self.cfg["poll_seconds"]}
 
     def _ingest(self, rf: ResultFile, meta: dict, record: bool = True) -> None:
         prev = self.state
@@ -287,7 +352,10 @@ def make_handler(mon: Monitor):
                     return self._send(200, gz, "application/json; charset=utf-8", gz=True)
                 return self._send(200, gzip.decompress(gz), "application/json; charset=utf-8")
             if path == "/api/status":
-                return self._json({**mon.status, "sim": mon.sim.status() if mon.sim else None})
+                return self._json({**mon.status, "mode": mon.mode,
+                                   "sim": mon.sim.status() if mon.sim else None})
+            if path == "/api/mode":
+                return self._json({"mode": mon.mode})
             if path == "/api/sim":
                 return self._json(mon.sim.status() if mon.sim else {"error": "not a simulation"}, 200 if mon.sim else 404)
             if path == "/api/config":
@@ -322,6 +390,20 @@ def make_handler(mon: Monitor):
 
         def do_POST(self):
             u = urllib.parse.urlparse(self.path)
+            if u.path == "/api/mode":
+                n = int(self.headers.get("Content-Length") or 0)
+                try:
+                    body = json.loads(self.rfile.read(n) or b"{}") if n < 10000 else {}
+                except ValueError:
+                    body = {}
+                mode = (body.get("mode") or "").strip()
+                if mode not in ("live", "simulate", "baseline"):
+                    return self._json({"error": "mode must be 'live', 'simulate', or 'baseline'"}, 400)
+                try:
+                    out = mon.set_mode(mode, days=body.get("days"), speed=body.get("speed"))
+                except Exception as e:
+                    return self._json({"error": f"{type(e).__name__}: {e}"}, 500)
+                return self._json(out)
             if u.path == "/api/sim":
                 if not mon.sim:
                     return self._json({"error": "not a simulation"}, 404)

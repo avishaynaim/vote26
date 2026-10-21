@@ -27,27 +27,19 @@ def load_config(path: str) -> dict:
 
 def cmd_serve(a, cfg):
     sources = None
-    if a.simulate:
-        from .simulate import LiveSim
-        out = os.path.join(ROOT, "data", "sim", "feed")
-        sources = {"expc": [os.path.join(out, "expc.csv")], "expb": [os.path.join(out, "expb.csv")],
-                   "discover_pages": []}
-        cfg["poll_seconds"] = 1
-        cfg["expb_every"] = 1
-        a.data_dir = os.path.join("data", "sim")
-    elif a.file:
+    if a.file and not a.simulate:
         sources = {"expc": [os.path.abspath(a.file)], "expb": [], "discover_pages": []}
     if a.poll:
         cfg["poll_seconds"] = a.poll
-    mon = Monitor(cfg, a.current, a.baseline, sources=sources, data_dir=a.data_dir)
     if a.simulate:
-        bdir = _abs(cfg["elections"][a.baseline]["baseline_dir"])
-        mon.reset_state()
-        an = mon.analyzer
-        mon.sim = LiveSim(os.path.join(bdir, "expb.csv"), out, an.base.family, an._sector_of,
-                          days=a.days, speed=a.speed)
-        mon.sim.start()
-        mon.log(f"simulation: mock results over {a.days:g} days at x{a.speed} (change speed in the dashboard)")
+        a.data_dir = os.path.join("data", "sim")
+    mon = Monitor(cfg, a.current, a.baseline, sources=sources, data_dir=a.data_dir)
+    mon._sim_defaults = {"days": a.days, "speed": a.speed}
+    if a.simulate:
+        mon.set_mode("simulate", days=a.days, speed=a.speed)
+        mon.log(f"simulation: mock results over {a.days:g} days at x{a.speed} (change in the dashboard)")
+    elif a.file:
+        mon.mode = "custom"
     serve(mon, a.host, a.port)
 
 
